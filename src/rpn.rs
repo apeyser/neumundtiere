@@ -1,11 +1,13 @@
 use std::fmt;
 use std::convert::From;
+use std::collections::HashMap;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub enum Frame {
     Int(i64),
     UnaryOp(UnaryOp),
     BinaryOp(BinaryOp),
+    Name(String),
 }
 
 impl From<i64> for Frame {
@@ -26,6 +28,12 @@ impl From<BinaryOp> for Frame {
     }
 }
 
+impl From<String> for Frame {
+    fn from(item: String) -> Self {
+        Frame::Name(item)
+    }
+}
+
 fn writer<T: fmt::Display>(f: &mut fmt::Formatter<'_>,
                            s: &'static str,
                            v: &T) -> fmt::Result
@@ -39,6 +47,7 @@ impl fmt::Display for Frame {
             Frame::Int(v)       => writer(f, "Int", v),
             Frame::UnaryOp(op)  => writer(f, "UnaryOp", op),
             Frame::BinaryOp(op) => writer(f, "BinaryOp", op),
+            Frame::Name(name)   => writer(f, "Name", name),
         }
     }
 }
@@ -66,9 +75,7 @@ impl fmt::Display for UnaryOp {
     }
 }
 
-#[allow(dead_code)]
 fn fneg(v: i64) -> i64 { -v }
-#[allow(dead_code)]
 pub const NEG: UnaryOp = UnaryOp {
     name: "neg",
     op: fneg,
@@ -97,79 +104,117 @@ impl BinaryOp {
     }
 }
 
-#[allow(dead_code)]
 fn fadd(a: i64, b: i64) -> i64 { a + b }
-#[allow(dead_code)]
 pub const ADD: BinaryOp = BinaryOp {
     name: "add",
     op: fadd,
 };
 
-#[allow(dead_code)]
 fn fsub(a: i64, b: i64) -> i64 { a - b }
-#[allow(dead_code)]
 pub const SUB: BinaryOp = BinaryOp {
     name: "sub",
     op: fsub,
 };
 
+type DictBase = HashMap<String, Frame>;
+
+struct Dict {
+    dict: DictBase
+}
+
+impl Dict {
+    pub fn new() -> Self {
+        Dict {
+            dict: DictBase::from([
+                ("neg".into(), NEG.into()),
+                ("add".into(), ADD.into()),
+                ("sub".into(), SUB.into()),
+            ])
+        }
+    }
+
+    pub fn get(&mut self, string: String) -> Option<Frame> {
+        self.dict.get::<String>(&string).cloned()
+    }
+}
+
 pub struct Vm {
-    stack: Vec<Frame>,
+    op_stack: Vec<Frame>,
+    exec_stack: Vec<Frame>,
+    dict: Dict,
 }
 
 #[derive(Debug)]
 pub enum Error {
     StackUnderflow,
     OpType,
+    Unknown(String),
 }
 
 impl Vm {
     pub fn new() -> Self {
-        let stack = Vec::new();
-        Vm { stack }
+        let op_stack = Vec::new();
+        let exec_stack = Vec::new();
+        let dict = Dict::new();
+        Vm { op_stack, exec_stack, dict }
     }
 
-    pub fn exec(&mut self, frames: Vec<Frame>) -> Result<Option<&Frame>, Error> {
-        for frame in frames {
+    pub fn exec<I>(&mut self, frames: I) -> Result<Option<&Frame>, Error>
+        where I: Iterator<Item=Frame>
+    {
+        let mut frames: Vec<Frame> = frames.collect();
+        frames.reverse();
+        self.exec_stack.append(&mut frames);
+        loop {
+            let Some(frame) = self.exec_stack.pop() else {     
+                break Ok(self.peek());
+            };
+            
             match frame {
+                Frame::Name(s) => {
+                    let Some(f) = self.dict.get(s.clone()) else {
+                        return Err(Error::Unknown(s))
+                    };
+                    self.exec_stack.push(f);
+                },
+                
                 Frame::Int(i) => {
                     let f = Frame::from(i);
-                    self.stack.push(f);
+                    self.op_stack.push(f);
                 },
 
                 Frame::UnaryOp(op) => {
-                    let Some(f) = self.stack.pop() else {
-                        return Err(Error::StackUnderflow);
+                    let Some(f) = self.op_stack.pop() else {
+                        break Err(Error::StackUnderflow);
                     };
                     let f = op.exec(f)?;
-                    self.stack.push(f);
+                    self.op_stack.push(f);
                 },
                 
                 Frame::BinaryOp(op) => {
-                    let len = self.stack.len();
+                    let len = self.op_stack.len();
                     if len < 2 {
-                        return Err(Error::StackUnderflow)
+                        break Err(Error::StackUnderflow)
                     };
                     
-                    let [ref f1, ref f2] = self.stack[len-2..] else {
+                    let [ref f1, ref f2] = self.op_stack[len-2..] else {
                         panic!("Impossible");
                     };
-                    let f = op.exec(*f1, *f2)?;
-                    self.stack[len-2] = f;
-                    self.stack.truncate(len-1);
+                    let f = op.exec(f1.clone(), f2.clone())?;
+                    self.op_stack[len-2] = f;
+                    self.op_stack.truncate(len-1);
                 }
             }
         }
-        Ok(self.peek())
     }
 
     pub fn peek(&self) -> Option<&Frame> {
-        self.stack.last()
+        self.op_stack.last()
     }
 
     #[allow(dead_code)]
     pub fn stack(&self) -> Vec<Frame> {
-        self.stack.clone()
+        self.op_stack.clone()
     }
 }
 
