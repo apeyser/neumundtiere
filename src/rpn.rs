@@ -160,7 +160,16 @@ impl Vm {
                 }
             }
         }
-        Ok(self.stack.last())
+        Ok(self.peek())
+    }
+
+    pub fn peek(&self) -> Option<&Frame> {
+        self.stack.last()
+    }
+
+    #[allow(dead_code)]
+    pub fn stack(&self) -> Vec<Frame> {
+        self.stack.clone()
     }
 }
 
