@@ -1,53 +1,65 @@
-mod rpn;
-use rpn::*;
+use crate::rpn::*;
+use regex::{Regex, Captures};
+use std::str::FromStr;
 
-use regex::{Regex, Captures, CaptureMatches};
-
-struct Reader {
-    string: String,
-    caps: CaptureMatches 
+pub struct Reader<'h> {
+    string: &'h str,
+    regex: Regex,
 }
 
-enum Error {
+#[derive(Debug, Clone)]
+pub enum Error {
     IntParse(<i64 as FromStr>::Err),
-    IllegalSym(str),
+    IllegalSym(String),
+    Illformed(String),
 }
 
-const REGEX: String = r"^(?:\s*(?:(?<int>\d+)|(?<name>\w+)|(?<illegal>\S+))";
+static REGEX: &str = r"^\s*(?:(?<int>\d+)|(?<name>\w+)|(?<illegal>\S+))\s*";
 
-impl Reader {
-    pub fn new(string: String) -> Self {
-        match Reg::new(REGEX) {
+impl<'h> Reader<'h> {
+    pub fn new(string: &'h str) -> Self {
+        match Regex::new(REGEX) {
             Err(err) => panic!("Failed regex: {:?}", err),
-            Ok(regex) => Reader {string, regex.capture_iter(string)},
+            Ok(regex) => Reader {string, regex},
         }
     }
-}
 
-impl Iterator for Reader {
-    type Item = Result<Frame, Error>;
-
-    fn frame<T>(val: T) -> Option<Self::Item> {
-        Ok(i.into)
+    pub fn parsed(self) -> Result<Vec<Frame>, Error> {
+        let mut vec = Vec::<Frame>::new();
+        let mut string = self.string;
+        while string.len() > 0 {
+            let Some(captures) = self.regex.captures(string) else {
+                return Err(Error::Illformed(String::from(string)));
+            };
+            let Some(m) = captures.get(0) else {
+                panic!("Bad capture: {:?}", captures);
+            };
+            string = &string[m.end()..];
+            match Self::convert(captures) {
+                Err(e) => return Err(e),
+                Ok(frame) => vec.push(frame),
+            };
+        };
+        
+        Ok(vec)
     }
 
-    fn error(err: Error) -> Option<Self::Item> {
-        Ok(Err(err))
+    pub fn parse(string: &'h str) -> Result<Vec<Frame>, Error> {
+        Self::new(string).parsed()
     }
-    
-    pub fn next(&mut self) -> Option<Self::Item> {
-        let Some(next) = self.caps.next() else {return None};
-        if let Some(m) = next["int"] {
+
+    fn convert(captures: Captures) -> Result<Frame, Error> {
+        if let Some(m) = captures.name("int") {
             match m.as_str().parse::<i64>() {
-                Ok(i) => Self::frame(i),
-                Err(e) => Self::error(Error::IntParse(e)),
-            } 
-        } else if let Some(m) = next["name"] {
-            Self::frame(m.as_str())
-        } else if let Some(m) = next["illegal"] {
-            Self::error(Error::IllegalSym(m.as_str()))
+                Ok(i) => Ok(i.into()),
+                Err(e) => Err(Error::IntParse(e)),
+            }
+        } else if let Some(m) = captures.name("name") {
+            Ok(String::from(m.as_str()).into())
+        } else if let Some(m) = captures.name("illegal") {
+            Err(Error::IllegalSym(m.as_str().into()))
         } else {
-            panic!("Illegal match {}", next);
+            panic!("Illegal match {:?}", captures);
         }
     }
 }

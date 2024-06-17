@@ -159,10 +159,8 @@ impl Vm {
         Vm { op_stack, exec_stack, dict }
     }
 
-    pub fn exec<I>(&mut self, frames: I) -> Result<Option<&Frame>, Error>
-        where I: Iterator<Item=Frame>
+    pub fn exec(&mut self, mut frames: Vec<Frame>) -> Result<Option<&Frame>, Error>
     {
-        let mut frames: Vec<Frame> = frames.collect();
         frames.reverse();
         self.exec_stack.append(&mut frames);
         loop {
@@ -215,6 +213,24 @@ impl Vm {
     #[allow(dead_code)]
     pub fn stack(&self) -> Vec<Frame> {
         self.op_stack.clone()
+    }
+
+    #[allow(dead_code)]
+    pub fn result(&mut self, frames: Vec<Frame>) -> Option<Error> {
+        match self.exec(frames) {
+            Ok(Some(f)) => {
+                println!("Result: {}", f);
+                None
+            },
+            Ok(None) => {
+                println!("Empty stack");
+                None
+            },
+            Err(e) => {
+                println!("Error: {:?}", e);
+                Some(e)
+            },
+        }
     }
 }
 
