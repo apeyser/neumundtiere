@@ -16,21 +16,14 @@ fn main() {
         SUB.into(),
         NEG.into(),
     ];
-    match vm.result(cmd) {
-        None => (),
-        Some(_) => return,
+    let None = vm.result(cmd) else {
+        return
     };
 
-    match Reader::parse("1 2 add 3 sub") {
-        Err(e) => {
-            println!("Read failure {:?}", e);
-            return;
-        },
-        Ok(frames) => {
-            match vm.result(frames) {
-                None => (),
-                Some(_) => return,
-            }
-        },
+    let Some(frames) = Reader::result("1 2 add 3 sub") else {
+        return
+    };
+    let None = vm.result(frames) else {
+        return
     };
 }

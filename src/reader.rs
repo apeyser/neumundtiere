@@ -48,6 +48,16 @@ impl<'h> Reader<'h> {
         Self::new(string).parsed()
     }
 
+    pub fn result(string: &'h str) -> Option<Vec<Frame>> {
+        match Reader::parse(string) {
+            Err(e) => {
+                println!("Read failure {:?}", e);
+                None
+            },
+            Ok(frames) => Some(frames),
+        }
+    }
+
     fn convert(captures: Captures) -> Result<Frame, Error> {
         if let Some(m) = captures.name("int") {
             match m.as_str().parse::<i64>() {
