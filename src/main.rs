@@ -20,7 +20,8 @@ fn main() {
         return
     };
 
-    let Some(frames) = Reader::result("1 2 add 3 sub") else {
+    let reader = Reader::new();
+    let Some(frames) = reader.result("1 2 add 3 sub") else {
         return
     };
     let None = vm.result(frames) else {

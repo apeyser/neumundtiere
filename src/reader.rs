@@ -2,8 +2,7 @@ use crate::rpn::*;
 use regex::{Regex, Captures};
 use std::str::FromStr;
 
-pub struct Reader<'h> {
-    string: &'h str,
+pub struct Reader {
     regex: Regex,
 }
 
@@ -16,17 +15,16 @@ pub enum Error {
 
 static REGEX: &str = r"^\s*(?:(?<int>\d+)|(?<name>\w+)|(?<illegal>\S+))\s*";
 
-impl<'h> Reader<'h> {
-    pub fn new(string: &'h str) -> Self {
+impl Reader {
+    pub fn new() -> Self {
         match Regex::new(REGEX) {
             Err(err) => panic!("Failed regex: {:?}", err),
-            Ok(regex) => Reader {string, regex},
+            Ok(regex) => Reader {regex},
         }
     }
 
-    pub fn parsed(self) -> Result<Vec<Frame>, Error> {
+    pub fn parse(&self, mut string: &str) -> Result<Vec<Frame>, Error> {
         let mut vec = Vec::<Frame>::new();
-        let mut string = self.string;
         while string.len() > 0 {
             let Some(captures) = self.regex.captures(string) else {
                 return Err(Error::Illformed(String::from(string)));
@@ -35,21 +33,14 @@ impl<'h> Reader<'h> {
                 panic!("Bad capture: {:?}", captures);
             };
             string = &string[m.end()..];
-            match Self::convert(captures) {
-                Err(e) => return Err(e),
-                Ok(frame) => vec.push(frame),
-            };
+            vec.push(Self::convert(captures)?);
         };
         
         Ok(vec)
     }
 
-    pub fn parse(string: &'h str) -> Result<Vec<Frame>, Error> {
-        Self::new(string).parsed()
-    }
-
-    pub fn result(string: &'h str) -> Option<Vec<Frame>> {
-        match Reader::parse(string) {
+    pub fn result(&self, string: &str) -> Option<Vec<Frame>> {
+        match self.parse(string) {
             Err(e) => {
                 println!("Read failure {:?}", e);
                 None
