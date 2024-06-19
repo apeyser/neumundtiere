@@ -39,6 +39,7 @@ impl Reader {
         Ok(vec)
     }
 
+    #[allow(dead_code)]
     pub fn result(&self, string: &str) -> Option<Vec<Frame>> {
         match self.parse(string) {
             Err(e) => {

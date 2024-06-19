@@ -2,7 +2,7 @@ use std::fmt;
 use std::convert::From;
 use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Frame {
     Int(i64),
     UnaryOp(UnaryOp),
@@ -53,7 +53,7 @@ impl fmt::Display for Frame {
 }
 
 type UnaryOpFunc = fn(i64) -> i64;
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct UnaryOp {
     name: &'static str,
     op: UnaryOpFunc,
@@ -81,7 +81,7 @@ pub const NEG: UnaryOp = UnaryOp {
 };
 
 type BinaryOpFunc = fn(i64, i64) -> i64;
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct BinaryOp {
     name: &'static str,
     op: BinaryOpFunc,
