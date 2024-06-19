@@ -27,10 +27,10 @@ impl Reader {
         let mut vec = Vec::<Frame>::new();
         while string.len() > 0 {
             let Some(captures) = self.regex.captures(string) else {
-                return Err(Error::Illformed(String::from(string)));
+                return Err(Error::Illformed(String::from(string)))
             };
             let Some(m) = captures.get(0) else {
-                panic!("Bad capture: {:?}", captures);
+                panic!("Bad capture: {:?}", captures)
             };
             string = &string[m.end()..];
             vec.push(Self::convert(captures)?);

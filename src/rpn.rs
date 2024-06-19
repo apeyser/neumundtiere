@@ -61,11 +61,10 @@ pub struct UnaryOp {
 
 impl UnaryOp {
     fn exec(&self, f: Frame) -> Result<Frame, Error> {
-        if let Frame::Int(i) = f {
-            Ok(Frame::from((self.op)(i)))
-        } else {
-            Err(Error::OpType)
-        }
+        let Frame::Int(i) = f else {
+            return Err(Error::OpType)
+        };
+        Ok(Frame::from((self.op)(i)))
     }
 }
 
@@ -96,11 +95,10 @@ impl fmt::Display for BinaryOp {
 
 impl BinaryOp {
     fn exec(&self, f1: Frame, f2: Frame) -> Result<Frame, Error> {
-        if let (Frame::Int(i1), Frame::Int(i2)) = (f1, f2) {
-            Ok(Frame::from((self.op)(i1, i2)))
-        } else {
-            Err(Error::OpType)
-        }
+        let (Frame::Int(i1), Frame::Int(i2)) = (f1, f2) else {
+            return Err(Error::OpType)
+        };
+        Ok(Frame::from((self.op)(i1, i2)))
     }
 }
 
@@ -133,7 +131,7 @@ impl Dict {
         }
     }
 
-    pub fn get(&mut self, string: String) -> Option<Frame> {
+    pub fn get(&self, string: String) -> Option<Frame> {
         self.dict.get::<String>(&string).cloned()
     }
 }
@@ -153,13 +151,14 @@ pub enum Error {
 
 impl Vm {
     pub fn new() -> Self {
-        let op_stack = Vec::new();
-        let exec_stack = Vec::new();
-        let dict = Dict::new();
-        Vm { op_stack, exec_stack, dict }
+        Vm {
+            op_stack: Vec::new(),
+            exec_stack: Vec::new(),
+            dict: Dict::new(),
+        }
     }
 
-    pub fn exec(&mut self, mut frames: Vec<Frame>) -> Result<Option<&Frame>, Error>
+    pub fn exec(&mut self, mut frames: Vec<Frame>) -> Result<Option<Frame>, Error>
     {
         frames.reverse();
         self.exec_stack.append(&mut frames);
@@ -206,8 +205,11 @@ impl Vm {
         }
     }
 
-    pub fn peek(&self) -> Option<&Frame> {
-        self.op_stack.last()
+    pub fn peek(&self) -> Option<Frame> {
+        let Some(frame) = self.op_stack.last() else {
+            return None
+        };
+        Some(frame.clone())
     }
 
     #[allow(dead_code)]
