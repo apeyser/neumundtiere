@@ -4,18 +4,39 @@ use rpn::*;
 mod reader;
 use reader::*;
 
+use std::fmt;
+use std::convert::From;
+
+enum Printer {
+    Frame(Frame),
+    Empty,
+}
+
+impl fmt::Display for Printer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Printer::Frame(frame) => write!(f, "{}", frame),
+            Printer::Empty => write!(f, "Empty Stack"),
+        }
+    }
+}
+
+impl From<Option<Frame>> for Printer {
+    fn from(item: Option<Frame>) -> Self {
+        match item {
+            None => Printer::Empty,
+            Some(frame) => Printer::Frame(frame),
+        }
+    }
+}
+
 fn check_return(expect: Option<Frame>, got: Result<Option<Frame>, rpn::Error>) {
     match got {
         Err(e) => panic!("Error: {:?}", e),
-        Ok(v) => match (expect, v) {
-            (None,     None)     => println!("Empty stack expected"),
-            (None,     Some(f))  => panic!("Expected empty stack, got {}", f),
-            (Some(f),  None)     => panic!("Expected {}, but stack empty", f),
-            (Some(f1), Some(f2)) => if f1 == f2 {
-                println!("Expected and got {}", f1)
-            } else {
-                panic!("Expected {}, got {}", f1, f2)
-            }
+        Ok(v) => if v == expect {
+            println!("Expected and got {}", Printer::from(v))
+        } else {
+            panic!("Expected {}, got {}", Printer::from(expect), Printer::from(v))
         }
     }
 }
