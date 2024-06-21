@@ -7,6 +7,7 @@ pub enum Frame {
     Int(i64),
     UnaryOp(UnaryOp),
     BinaryOp(BinaryOp),
+    StackOp(StackOp),
     Name(String),
 }
 
@@ -28,6 +29,12 @@ impl From<BinaryOp> for Frame {
     }
 }
 
+impl From<StackOp> for Frame {
+    fn from(item: StackOp) -> Self {
+        Frame::StackOp(item)
+    }
+}
+
 impl From<String> for Frame {
     fn from(item: String) -> Self {
         Frame::Name(item)
@@ -45,6 +52,7 @@ impl fmt::Display for Frame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
             Frame::Int(v)       => writer(f, "Int", v),
+            Frame::StackOp(op)  => writer(f, "StackOp", op),
             Frame::UnaryOp(op)  => writer(f, "UnaryOp", op),
             Frame::BinaryOp(op) => writer(f, "BinaryOp", op),
             Frame::Name(name)   => writer(f, "Name", name),
@@ -62,7 +70,7 @@ pub struct UnaryOp {
 impl UnaryOp {
     fn exec(&self, f: Frame) -> Result<Frame, Error> {
         let Frame::Int(i) = f else {
-            return Err(Error::OpType)
+            return Error::OpType.into()
         };
         Ok(Frame::from((self.op)(i)))
     }
@@ -78,6 +86,58 @@ fn fneg(v: i64) -> i64 { -v }
 pub const NEG: UnaryOp = UnaryOp {
     name: "neg",
     op: fneg,
+};
+
+///
+
+type StackOpFunc = fn(&Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>;
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct StackOp {
+    name: &'static str,
+    op: StackOpFunc,
+}
+
+impl StackOp {
+    fn exec(&self, vm: &mut Vm) -> Option<Error> {
+        let stack = &mut vm.op_stack;
+        let (mut substack, n) = match (self.op)(stack) {
+            Ok((substack, n)) => (substack, n),
+            Err(e) => return e.into(),
+        };
+        let len = stack.len();
+        if len < n {
+            return Error::StackUnderflow.into()
+        };
+        stack.truncate(len-n);
+        stack.append(&mut substack);
+        None
+    }
+}
+
+impl fmt::Display for StackOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+fn fpop(_stack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
+    Ok((vec![], 1))
+}
+pub const POP: StackOp = StackOp {
+    name: "pop",
+    op: fpop,
+};
+
+fn fdup(stack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
+    let len = stack.len();
+    if len == 0 {
+        return Error::StackUnderflow.into()
+    };
+    Ok((stack[len-1..].into(), 0))
+}
+pub const DUP: StackOp = StackOp {
+    name: "dup",
+    op: fdup,
 };
 
 type BinaryOpFunc = fn(i64, i64) -> i64;
@@ -96,7 +156,7 @@ impl fmt::Display for BinaryOp {
 impl BinaryOp {
     fn exec(&self, f1: Frame, f2: Frame) -> Result<Frame, Error> {
         let (Frame::Int(i1), Frame::Int(i2)) = (f1, f2) else {
-            return Err(Error::OpType)
+            return Error::OpType.into()
         };
         Ok(Frame::from((self.op)(i1, i2)))
     }
@@ -127,6 +187,8 @@ impl Dict {
                 ("neg".into(), NEG.into()),
                 ("add".into(), ADD.into()),
                 ("sub".into(), SUB.into()),
+                ("pop".into(), POP.into()),
+                ("dup".into(), DUP.into()),
             ])
         }
     }
@@ -149,6 +211,12 @@ pub enum Error {
     Unknown(String),
 }
 
+impl<T> Into<Result<T, Error>> for Error {
+    fn into(self) -> Result<T, Error> {
+        Err(self)
+    }
+}
+ 
 impl Vm {
     pub fn new() -> Self {
         Vm {
@@ -170,7 +238,7 @@ impl Vm {
             match frame {
                 Frame::Name(s) => {
                     let Some(f) = self.dict.get(s.clone()) else {
-                        return Err(Error::Unknown(s))
+                        return Error::Unknown(s).into()
                     };
                     self.exec_stack.push(f);
                 },
@@ -182,7 +250,7 @@ impl Vm {
 
                 Frame::UnaryOp(op) => {
                     let Some(f) = self.op_stack.pop() else {
-                        break Err(Error::StackUnderflow);
+                        break Error::StackUnderflow.into();
                     };
                     let f = op.exec(f)?;
                     self.op_stack.push(f);
@@ -191,7 +259,7 @@ impl Vm {
                 Frame::BinaryOp(op) => {
                     let len = self.op_stack.len();
                     if len < 2 {
-                        break Err(Error::StackUnderflow)
+                        break Error::StackUnderflow.into()
                     };
                     
                     let [ref f1, ref f2] = self.op_stack[len-2..] else {
@@ -201,14 +269,18 @@ impl Vm {
                     self.op_stack[len-2] = f;
                     self.op_stack.truncate(len-1);
                 }
+
+                Frame::StackOp(op) => {
+                    if let Some(e) = op.exec(self) {
+                        return e.into()
+                    }
+                }
             }
         }
     }
 
     pub fn peek(&self) -> Option<Frame> {
-        let Some(frame) = self.op_stack.last() else {
-            return None
-        };
+        let frame = self.op_stack.last()?;
         Some(frame.clone())
     }
 
