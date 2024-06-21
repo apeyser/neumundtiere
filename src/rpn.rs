@@ -68,11 +68,16 @@ pub struct UnaryOp {
 }
 
 impl UnaryOp {
-    fn exec(&self, f: Frame) -> Result<Frame, Error> {
+    fn exec(&self, vm: &mut Vm) -> Option<Error> {
+        let Some(f) = vm.op_stack.pop() else {
+            return Error::StackUnderflow.into()
+        };
         let Frame::Int(i) = f else {
             return Error::OpType.into()
         };
-        Ok(Frame::from((self.op)(i)))
+        let r = (self.op)(i);
+        vm.op_stack.push(r.into());
+        None
     }
 }
 
@@ -154,11 +159,23 @@ impl fmt::Display for BinaryOp {
 }
 
 impl BinaryOp {
-    fn exec(&self, f1: Frame, f2: Frame) -> Result<Frame, Error> {
-        let (Frame::Int(i1), Frame::Int(i2)) = (f1, f2) else {
+    fn exec(&self, vm: &mut Vm) -> Option<Error> {
+        let len = vm.op_stack.len();
+        if len < 2 {
+            return Error::StackUnderflow.into()
+        };
+                    
+        let [ref f1, ref f2] = vm.op_stack[len-2..] else {
+            panic!("Impossible");
+        };
+
+        let (&Frame::Int(i1), &Frame::Int(i2)) = (f1, f2) else {
             return Error::OpType.into()
         };
-        Ok(Frame::from((self.op)(i1, i2)))
+        let r = (self.op)(i1, i2);
+        vm.op_stack[len-2] = r.into();
+        vm.op_stack.truncate(len-1);
+        None
     }
 }
 
@@ -249,25 +266,15 @@ impl Vm {
                 },
 
                 Frame::UnaryOp(op) => {
-                    let Some(f) = self.op_stack.pop() else {
-                        break Error::StackUnderflow.into();
-                    };
-                    let f = op.exec(f)?;
-                    self.op_stack.push(f);
+                    if let Some(e) = op.exec(self) {
+                        return e.into()
+                    }
                 },
                 
                 Frame::BinaryOp(op) => {
-                    let len = self.op_stack.len();
-                    if len < 2 {
-                        break Error::StackUnderflow.into()
-                    };
-                    
-                    let [ref f1, ref f2] = self.op_stack[len-2..] else {
-                        panic!("Impossible");
-                    };
-                    let f = op.exec(f1.clone(), f2.clone())?;
-                    self.op_stack[len-2] = f;
-                    self.op_stack.truncate(len-1);
+                    if let Some(e) = op.exec(self) {
+                        return e.into()
+                    }
                 }
 
                 Frame::StackOp(op) => {
