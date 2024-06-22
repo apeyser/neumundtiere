@@ -13,9 +13,7 @@ struct Lines {
 
 impl Lines {
     fn new() -> Self {
-        Self {
-            lines: io::stdin().lines(),
-        }
+        Self {lines: io::stdin().lines()}
     }
 }
 
@@ -32,29 +30,40 @@ impl Iterator for Lines {
     }
 }
 
-fn exec_line(vm: &mut Vm, reader: &Reader, string: &str) -> bool {
-    match reader.parse(string) {
-        Err(err) => println!("Parse error: {err:?}"),
-        Ok(frames) => {
-            match vm.exec(frames) {
-                Err(rpn::Error::Quit) => {
-                    println!("Quitting with stack {:?}", vm.stack());
-                    return false
-                },
-                Err(err) => println!("Exec error: {err:?}, {:?}", vm.stack()),
-                Ok(_) => (),
-            }
+enum Error {
+    Reader(reader::Error),
+    Rpn(rpn::Error),
+    Quit,
+}
+
+impl From<reader::Error> for Error {
+    fn from(e: reader::Error) -> Error {Error::Reader(e)}
+}
+
+impl From<rpn::Error> for Error {
+    fn from(e: rpn::Error) -> Error {
+        match e {
+            rpn::Error::Quit => Error::Quit,
+            e => Error::Rpn(e),
         }
-    };
-    true
+    }
+}
+
+fn exec_line(vm: &mut Vm, reader: &Reader, string: &str) -> Result<(), Error> {
+    vm.exec(reader.parse(string)?)?;
+    Ok(())
 }
 
 fn main() {
     let mut vm = Vm::new();
     let reader = Reader::new();
     for line in Lines::new() {
-        if ! exec_line(&mut vm, &reader, &line) {
-            break
+        match exec_line(&mut vm, &reader, &line) {
+            Ok(_) => (),
+            Err(Error::Quit) => break,
+            Err(Error::Reader(err)) => println!("Parse error: {err:?}"),
+            Err(Error::Rpn(err)) => println!("Exec error: {err:?}"),
         }
     }
+    println!("Quitting with stack {:?}", vm.stack());
 }
