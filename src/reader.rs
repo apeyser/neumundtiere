@@ -43,7 +43,7 @@ impl Reader {
     pub fn result(&self, string: &str) -> Option<Vec<Frame>> {
         match self.parse(string) {
             Err(e) => {
-                println!("Read failure {:?}", e);
+                println!("Read failure {e:?}");
                 None
             },
             Ok(frames) => Some(frames),

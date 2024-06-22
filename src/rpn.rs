@@ -352,7 +352,7 @@ impl Vm {
     pub fn result(&mut self, frames: Vec<Frame>) -> Option<Error> {
         match self.exec(frames) {
             Ok(Some(f)) => {
-                println!("Result: {}", f);
+                println!("Result: {f}");
                 None
             },
             Ok(None) => {
@@ -360,7 +360,7 @@ impl Vm {
                 None
             },
             Err(e) => {
-                println!("Error: {:?}", e);
+                println!("Error: {e:?}");
                 Some(e)
             },
         }

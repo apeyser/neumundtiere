@@ -44,7 +44,7 @@ impl From<rpn::Error> for Error {
     fn from(e: rpn::Error) -> Error {
         match e {
             rpn::Error::Quit => Error::Quit,
-            e => Error::Rpn(e),
+            _ => Error::Rpn(e),
         }
     }
 }
