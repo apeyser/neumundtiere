@@ -53,7 +53,7 @@ impl Reader {
     fn convert(captures: Captures) -> Result<Frame, Error> {
         if let Some(m) = captures.name("int") {
             match m.as_str().parse::<i64>() {
-                Ok(i) => Ok(i.into()),
+                Ok(i) => Ok(Frame::Num(i.into())),
                 Err(e) => Err(Error::IntParse(e)),
             }
         } else if let Some(m) = captures.name("name") {

@@ -1,19 +1,99 @@
 use std::fmt;
 use std::convert::From;
 use std::collections::HashMap;
+use std::ops::{Add,Sub,Div,Mul,Neg};
+
+fn writer<T: fmt::Display>(f: &mut fmt::Formatter<'_>,
+                           s: &'static str,
+                           v: &T) -> fmt::Result
+  {write!(f, "{}: {}", s, v)}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Num {
+    Int(i64),
+    NaN,
+}
+
+impl From<i64> for Num {
+    fn from(item: i64) -> Self {Num::Int(item)}
+}
+
+impl Neg for Num {
+    type Output = Num;
+    fn neg(self) -> Self::Output {
+        match self {
+            Num::NaN => Num::NaN,
+            Num::Int(i) => (-i).into(),
+        }
+    }
+}
+
+impl Add for Num {
+    type Output = Num;
+    fn add(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Num::Int(a), Num::Int(b)) => (a+b).into(),
+            (Num::NaN, _) => Num::NaN,
+            (_, Num::NaN) => Num::NaN,
+        }
+    }
+}
+
+impl Sub for Num {
+    type Output = Num;
+    fn sub(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Num::Int(a), Num::Int(b)) => (a-b).into(),
+            (Num::NaN, _) => Num::NaN,
+            (_, Num::NaN) => Num::NaN,
+        }
+    }
+}
+
+impl Mul for Num {
+    type Output = Num;
+    fn mul(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Num::Int(a), Num::Int(b)) => (a*b).into(),
+            (Num::NaN, _) => Num::NaN,
+            (_, Num::NaN) => Num::NaN,
+        }
+    }
+}
+
+impl Div for Num {
+    type Output = Num;
+    fn div(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (_, Num::Int(0)) => Num::NaN,
+            (Num::Int(a), Num::Int(b)) => (a/b).into(),
+            (Num::NaN, _) => Num::NaN,
+            (_, Num::NaN) => Num::NaN,
+        }
+    }
+}
+
+impl fmt::Display for Num {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self {
+            Num::NaN => write!(f, "NaN"),
+            Num::Int(i) => write!(f, "{i}"),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Frame {
-    Int(i64),
+    Num(Num),
     UnaryOp(UnaryOp),
     BinaryOp(BinaryOp),
     StackOp(StackOp),
     Name(String),
 }
 
-impl From<i64> for Frame {
-    fn from(item: i64) -> Self {
-        Frame::Int(item)
+impl From<Num> for Frame {
+    fn from(item: Num) -> Self {
+        Frame::Num(item)
     }
 }
 
@@ -41,17 +121,10 @@ impl From<String> for Frame {
     }
 }
 
-fn writer<T: fmt::Display>(f: &mut fmt::Formatter<'_>,
-                           s: &'static str,
-                           v: &T) -> fmt::Result
-{
-    write!(f, "{}: {}", s, v)
-}
-
 impl fmt::Display for Frame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
-            Frame::Int(v)       => writer(f, "Int", v),
+            Frame::Num(v)       => writer(f, "Num", v),
             Frame::StackOp(op)  => writer(f, "StackOp", op),
             Frame::UnaryOp(op)  => writer(f, "UnaryOp", op),
             Frame::BinaryOp(op) => writer(f, "BinaryOp", op),
@@ -60,7 +133,7 @@ impl fmt::Display for Frame {
     }
 }
 
-type UnaryOpFunc = fn(i64) -> i64;
+type UnaryOpFunc = fn(Num) -> Num;
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct UnaryOp {
     name: &'static str,
@@ -69,11 +142,10 @@ pub struct UnaryOp {
 
 impl UnaryOp {
     fn exec(&self, vm: &mut Vm) -> Option<Error> {
-        let Some(f) = vm.op_stack.pop() else {
-            return Error::StackUnderflow.into()
-        };
-        let Frame::Int(i) = f else {
-            return Error::OpType.into()
+        let i = match vm.op_stack.pop() {
+            None => return Error::StackUnderflow.into(),
+            Some(Frame::Num(num)) => num,
+            Some(_) => return Error::OpType.into(),
         };
         let r = (self.op)(i);
         vm.op_stack.push(r.into());
@@ -87,13 +159,10 @@ impl fmt::Display for UnaryOp {
     }
 }
 
-fn fneg(v: i64) -> i64 { -v }
 pub const NEG: UnaryOp = UnaryOp {
     name: "neg",
-    op: fneg,
+    op: |a| -a,
 };
-
-///
 
 type StackOpFunc = fn(&Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>;
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -133,6 +202,14 @@ pub const POP: StackOp = StackOp {
     op: fpop,
 };
 
+fn fclear(stack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
+    Ok((vec![], stack.len()))
+}
+pub const CLEAR: StackOp = StackOp {
+    name: "clear",
+    op: fclear,
+};
+
 fn fdup(stack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
     let len = stack.len();
     if len == 0 {
@@ -158,9 +235,11 @@ pub const EXCH: StackOp = StackOp {
     op: fexch,
 };
 
-
 fn fshow(stack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
-    println!("Stack: {stack:?}");
+    println!("Stack:");
+    for v in stack.into_iter().rev() {
+        println!("  {v}");
+    };
     Ok((vec![], 0))
 }
 pub const SHOW: StackOp = StackOp {
@@ -180,7 +259,6 @@ pub const PEEK: StackOp = StackOp {
     op: fpeek,
 };
 
-
 fn fquit(_stack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
     Err(Error::Quit)
 }
@@ -189,8 +267,7 @@ pub const QUIT: StackOp = StackOp {
     op: fquit,
 };
 
-
-type BinaryOpFunc = fn(i64, i64) -> i64;
+type BinaryOpFunc = fn(Num, Num) -> Num;
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct BinaryOp {
     name: &'static str,
@@ -214,7 +291,7 @@ impl BinaryOp {
             panic!("Impossible");
         };
 
-        let (&Frame::Int(i1), &Frame::Int(i2)) = (f1, f2) else {
+        let (&Frame::Num(i1), &Frame::Num(i2)) = (f1, f2) else {
             return Error::OpType.into()
         };
         let r = (self.op)(i1, i2);
@@ -224,16 +301,24 @@ impl BinaryOp {
     }
 }
 
-fn fadd(a: i64, b: i64) -> i64 { a + b }
 pub const ADD: BinaryOp = BinaryOp {
     name: "add",
-    op: fadd,
+    op: |a, b| a+b,
 };
 
-fn fsub(a: i64, b: i64) -> i64 { a - b }
 pub const SUB: BinaryOp = BinaryOp {
     name: "sub",
-    op: fsub,
+    op: |a, b| a-b,
+};
+
+pub const MUL: BinaryOp = BinaryOp {
+    name: "mul",
+    op: |a, b| a*b,
+};
+
+pub const DIV: BinaryOp = BinaryOp {
+    name: "div",
+    op: |a, b| a/b,
 };
 
 type DictBase = HashMap<String, Frame>;
@@ -251,12 +336,18 @@ impl Dict {
                 ("+".into(),    ADD.into()),
                 ("sub".into(),  SUB.into()),
                 ("-".into(),    SUB.into()),
+                ("mul".into(),  MUL.into()),
+                ("*".into(),    MUL.into()),
+                ("div".into(),  DIV.into()),
+                ("/".into(),    DIV.into()),
+                ("NaN".into(),  Num::NaN.into()),
                 ("pop".into(),  POP.into()),
                 ("dup".into(),  DUP.into()),
                 ("exch".into(), EXCH.into()),
                 ("==".into(),   SHOW.into()),
                 ("=".into(),    PEEK.into()),
                 ("quit".into(), QUIT.into()),
+                ("clear".into(), CLEAR.into()),
             ])
         }
     }
@@ -311,11 +402,6 @@ impl Vm {
                     };
                     self.exec_stack.push(f);
                 },
-                
-                Frame::Int(i) => {
-                    let f = Frame::from(i);
-                    self.op_stack.push(f);
-                },
 
                 Frame::UnaryOp(op) => {
                     if let Some(e) = op.exec(self) {
@@ -327,13 +413,15 @@ impl Vm {
                     if let Some(e) = op.exec(self) {
                         return e.into()
                     }
-                }
+                },
 
                 Frame::StackOp(op) => {
                     if let Some(e) = op.exec(self) {
                         return e.into()
                     }
-                }
+                },
+
+                other => self.op_stack.push(other),
             }
         }
     }
