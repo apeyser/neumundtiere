@@ -3,5 +3,12 @@ name = "dm"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+with-file-history = ["rustyline/with-file-history"]
+default = ["with-file-history"]
+
 [dependencies]
+clap = { version = "4.5.7", features = ["derive", "cargo"] }
+dirs = "5.0.1"
 regex = "1.10.5"
+rustyline = { version = "14.0.0" }

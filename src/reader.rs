@@ -23,8 +23,9 @@ impl Reader {
         }
     }
 
-    pub fn parse(&self, mut string: &str) -> Result<Vec<Frame>, Error> {
+    pub fn parse(&self, string: String) -> Result<Vec<Frame>, Error> {
         let mut vec = Vec::<Frame>::new();
+        let mut string = string.as_str();
         while string.len() > 0 {
             let Some(captures) = self.regex.captures(string) else {
                 return Err(Error::Illformed(String::from(string)))
@@ -40,7 +41,7 @@ impl Reader {
     }
 
     #[allow(dead_code)]
-    pub fn result(&self, string: &str) -> Option<Vec<Frame>> {
+    pub fn result(&self, string: String) -> Option<Vec<Frame>> {
         match self.parse(string) {
             Err(e) => {
                 println!("Read failure {e:?}");

@@ -465,11 +465,11 @@ mod tests {
         let mut vm = Vm::new();
 
         let cmd: Vec<Frame> = vec![
-            3.into(),
-            1.into(),
+            Num::Int(3).into(),
+            Num::Int(1).into(),
             ADD.into(),
             NEG.into(),
-            2.into(),
+            Num::Int(2).into(),
             SUB.into(),
             NEG.into(),
         ];
@@ -478,7 +478,7 @@ mod tests {
         };
 
         let reader = Reader::new();
-        let Some(frames) = reader.result("1 2 add 3 sub") else {
+        let Some(frames) = reader.result(String::from("1 2 add 3 sub")) else {
             panic!("Result: read error")
         };
         let None = vm.result(frames) else {
@@ -490,27 +490,27 @@ mod tests {
     fn exec() {
         let mut vm = Vm::new();
         let frames: Vec<Frame> = vec![
-            3.into(),
-            1.into(),
+            Num::Int(3).into(),
+            Num::Int(1).into(),
             ADD.into(),
             NEG.into(),
-            2.into(),
+            Num::Int(2).into(),
             SUB.into(),
             NEG.into(),
         ];
         match vm.exec(frames) {
             Err(e) => panic!("Error {e:?}"),
             Ok(None) => panic!("Empty stack"),
-            Ok(Some(frame)) => assert_eq!(Frame::Int(6), frame),
+            Ok(Some(frame)) => assert_eq!(Frame::Num(6.into()), frame),
         };
 
         let reader = Reader::new();
-        match reader.parse("1 2 add 4 sub") {
+        match reader.parse(String::from("1 2 add 4 sub")) {
             Err(e)  => panic!("Parse error: {e:?}"),
             Ok(frames) => match vm.exec(frames) {
                 Err(e) => panic!("Error {e:?}"),
                 Ok(None) => panic!("Empty stack"),
-                Ok(Some(frame)) => assert_eq!(Frame::Int(-1), frame),
+                Ok(Some(frame)) => assert_eq!(Frame::Num((-1).into()), frame),
             },
         };
     }
@@ -519,27 +519,27 @@ mod tests {
     fn stacked() {
         let mut vm = Vm::new();
         let frames: Vec<Frame> = vec![
-            3.into(),
+            Num::Int(3).into(),
             DUP.into(),
             ADD.into(),
             NEG.into(),
-            2.into(),
+            Num::Int(2).into(),
             SUB.into(),
             NEG.into(),
         ];
         match vm.exec(frames) {
             Err(e) => panic!("Error {e:?}"),
             Ok(None) => panic!("Empty stack"),
-            Ok(Some(frame)) => assert_eq!(Frame::Int(8), frame),
+            Ok(Some(frame)) => assert_eq!(Frame::Num(8.into()), frame),
         };
 
         let reader = Reader::new();
-        match reader.parse("1 dup add 4 pop dup sub") {
+        match reader.parse(String::from("1 dup add 4 pop dup sub")) {
             Err(e)  => panic!("Parse error: {e:?}"),
             Ok(frames) => match vm.exec(frames) {
                 Err(e) => panic!("Error {e:?}"),
                 Ok(None) => panic!("Empty stack"),
-                Ok(Some(frame)) => assert_eq!(Frame::Int(0), frame),
+                Ok(Some(frame)) => assert_eq!(Frame::Num(0.into()), frame),
             },
         };
     }
