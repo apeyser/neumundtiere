@@ -2,7 +2,6 @@ use std::io;
 use std::io::Write;
 use std::ops::Drop;
 use std::path::{Path,PathBuf};
-use std::error::Error;
 
 use rustyline::error::ReadlineError;
 use rustyline::{self, DefaultEditor};
@@ -79,7 +78,7 @@ impl Iterator for Lines {
     }
 }
 
-pub fn exec(vm: &mut Vm, reader: &Reader) -> Result<(), Box<dyn Error>> {
+pub fn exec(vm: &mut Vm, reader: &Reader) -> MainResult {
     match Lines::new() {
         Ok(lines) => super::exec(vm, reader, lines),
         Err(err) => {

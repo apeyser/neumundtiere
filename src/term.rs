@@ -1,13 +1,12 @@
-use std::error::Error;
-
 pub mod line;
 pub mod readline;
 pub mod string;
 
 use super::rpn::{self, Vm};
 use super::reader::{self, Reader};
+use super::MainResult;
 
-pub fn exec_string(vm: &mut Vm, reader: &Reader, string: String) -> Option<Result<(), Box<dyn Error>>>
+pub fn exec_string(vm: &mut Vm, reader: &Reader, string: String) -> Option<MainResult>
 {
     let frames = match reader.parse(string) {
         Ok(frames) => frames,
@@ -25,7 +24,8 @@ pub fn exec_string(vm: &mut Vm, reader: &Reader, string: String) -> Option<Resul
     }
 }
 
-pub fn exec<T: Iterator<Item=String>>(vm: &mut Vm, reader: &Reader, lines: T) -> Result<(), Box<dyn Error>>
+pub fn exec<T>(vm: &mut Vm, reader: &Reader, lines: T) -> MainResult
+    where T: Iterator<Item=String>
 {
     for line in lines {
         match exec_string(vm, reader, line) {

@@ -12,6 +12,8 @@ pub mod reader;
 use rpn::Vm;
 use reader::Reader;
 
+type MainResult = Result<(), Box<dyn Error>>;
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Cli {
@@ -46,14 +48,14 @@ impl Cli {
     }
 }
 
-fn from_file(vm: &mut Vm, reader: &Reader, path: PathBuf) -> Result<(), Box<dyn Error>> {
+fn from_file(vm: &mut Vm, reader: &Reader, path: PathBuf) -> MainResult {
     match fs::read_to_string(path) {
         Ok(string) => term::string::exec(vm, reader, string),
         Err(err) => Err(Box::new(err)),
     }
 }
 
-fn default(vm: &mut Vm, reader: &Reader) -> Result<(), Box<dyn Error>> {
+fn default(vm: &mut Vm, reader: &Reader) -> MainResult {
     if std::io::stdout().is_terminal() {
         term::readline::exec(vm, reader)
     }
@@ -62,7 +64,7 @@ fn default(vm: &mut Vm, reader: &Reader) -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> MainResult {
     let cli = Cli::parse();
     let vm = &mut Vm::new();
     let reader = &Reader::new();
