@@ -1,4 +1,5 @@
-use std::fmt;
+use std::error;
+use std::fmt::{self, Display, Formatter};
 use std::convert::From;
 use std::collections::HashMap;
 use std::ops::{Add,Sub,Div,Mul,Neg};
@@ -363,7 +364,7 @@ pub struct Vm {
     dict: Dict,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Error {
     Quit,
     StackUnderflow,
@@ -376,6 +377,19 @@ impl<T> Into<Result<T, Error>> for Error {
         Err(self)
     }
 }
+
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Error::Quit => write!(f, "Quitting"),
+            Error::StackUnderflow => write!(f, "Stack underflow"),
+            Error::OpType => write!(f, "Illegal operand type"),
+            Error::Unknown(string) => write!(f, "Unknown name {string}"),
+        }
+    }
+}
+
+impl error::Error for Error {}
  
 impl Vm {
     pub fn new() -> Self {

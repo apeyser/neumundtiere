@@ -1,55 +1,38 @@
+use std::error::Error;
+
 pub mod line;
 pub mod readline;
 pub mod string;
 
-use super::rpn::{self,Vm};
-use super::reader::{self,Reader};
+use super::rpn::{self, Vm};
+use super::reader::{self, Reader};
 
-pub enum Error {
-    Reader(reader::Error),
-    Rpn(rpn::Error),
-    Quit,
-}
-
-impl From<reader::Error> for Error {
-    fn from(e: reader::Error) -> Error {Error::Reader(e)}
-}
-
-impl From<rpn::Error> for Error {
-    fn from(e: rpn::Error) -> Error {
-        match e {
-            rpn::Error::Quit => Error::Quit,
-            _ => Error::Rpn(e),
-        }
-    }
-}
-
-pub fn exec_string(vm: &mut Vm, reader: &Reader, string: String) -> bool {
+pub fn exec_string(vm: &mut Vm, reader: &Reader, string: String) -> Option<Result<(), Box<dyn Error>>>
+{
     let frames = match reader.parse(string) {
         Ok(frames) => frames,
-        Err(err) => {
-            println!("Parse error: {err:?}");
-            return false
-        }
+        Err(err) => return Some(Err(Box::new(err))),
     };
     
-    match vm.exec(frames) {            
-        Ok(_) => true,
-        Err(err) => {
+    match vm.exec(frames) {
+        Ok(_) => Some(Ok(())),
+        Err(ref err) => {
             match err {
-                rpn::Error::Quit => (),
-                err => println!("Exec error: {err:?}"),
-            };
-            false
+                rpn::Error::Quit => None,
+                err => return Some(Err(Box::new(err.clone()))),
+            }
         }
     }
 }
 
-pub fn exec<T: Iterator<Item=String>>(vm: &mut Vm, reader: &Reader, lines: T) {
+pub fn exec<T: Iterator<Item=String>>(vm: &mut Vm, reader: &Reader, lines: T) -> Result<(), Box<dyn Error>>
+{
     for line in lines {
-        if ! exec_string(vm, reader, line) {
-            break
+        match exec_string(vm, reader, line) {
+            Some(Ok(())) => (),
+            Some(Err(err)) => println!("Error -- {err}"),
+            None => return Ok(()),
         }
-    }
-    println!("Quitting with stack {:?}", vm.stack());
+    };
+    Ok(())
 }

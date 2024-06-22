@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::io;
 use std::io::Write;
 
@@ -28,6 +29,6 @@ impl Iterator for Lines {
     }
 }
 
-pub fn exec(vm: &mut Vm, reader: &Reader) {
-    super::exec(vm, reader, Lines::new());
+pub fn exec(vm: &mut Vm, reader: &Reader) -> Result<(), Box<dyn Error>>{
+    super::exec(vm, reader, Lines::new())
 }

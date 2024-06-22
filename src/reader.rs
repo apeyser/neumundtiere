@@ -1,3 +1,6 @@
+use std::fmt::{self, Display, Formatter};
+use std::error;
+
 use crate::rpn::*;
 use regex::{Regex, Captures};
 use std::str::FromStr;
@@ -12,6 +15,18 @@ pub enum Error {
     IllegalSym(String),
     Illformed(String),
 }
+
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Error::IntParse(err) => write!(f, "Int parsing error: {err}"),
+            Error::IllegalSym(string) => write!(f, "Illegal symbol: {string}"),
+            Error::Illformed(string) => write!(f, "Illformed string: {string}"),
+        }
+    }
+}
+
+impl error::Error for Error {}
 
 static REGEX: &str = r"^\s*(?:(?<int>\d+)|(?<name>[^\s{}\[\]]+)|(?<illegal>\S+))\s*";
 

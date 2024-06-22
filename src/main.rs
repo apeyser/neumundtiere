@@ -1,6 +1,7 @@
 use std::fs;
 use std::io::IsTerminal;
 use std::path::PathBuf;
+use std::error::Error;
 
 use clap::{Parser, Subcommand};
 
@@ -45,24 +46,39 @@ impl Cli {
     }
 }
 
-fn main() {
+fn from_file(vm: &mut Vm, reader: &Reader, path: PathBuf) -> Result<(), Box<dyn Error>> {
+    match fs::read_to_string(path) {
+        Ok(string) => term::string::exec(vm, reader, string),
+        Err(err) => Err(Box::new(err)),
+    }
+}
+
+fn default(vm: &mut Vm, reader: &Reader) -> Result<(), Box<dyn Error>> {
+    if std::io::stdout().is_terminal() {
+        term::readline::exec(vm, reader)
+    }
+    else {
+        term::line::exec(vm, reader)
+    }
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
     let vm = &mut Vm::new();
     let reader = &Reader::new();
 
-    match cli.command() {
-        Command::Default => {
-            if std::io::stdout().is_terminal() {term::readline::exec(vm, reader)}
-            else {term::line::exec(vm, reader)}
-        },
-        Command::File{name} => {
-            match fs::read_to_string(name) {
-                Err(err) => println!("File error: {err:?}"),
-                Ok(string) => term::string::exec(vm, reader, string),
-            }
-        },
+    let result = match cli.command() {
+        Command::Default => default(vm, reader),
+        Command::File{name} => from_file(vm, reader, name),
         Command::String{string} => term::string::exec(vm, reader, string),
         Command::Line => term::line::exec(vm, reader),
         Command::Term => term::readline::exec(vm, reader),
-    }
+    };
+
+    let stack = vm.stack();
+    if stack.len() > 0 {
+        println!("Quitting with stack {:?}", vm.stack())
+    };
+
+    result
 }
