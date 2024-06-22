@@ -13,7 +13,7 @@ pub enum Error {
     Illformed(String),
 }
 
-static REGEX: &str = r"^\s*(?:(?<int>\d+)|(?<name>\w+)|(?<illegal>\S+))\s*";
+static REGEX: &str = r"^\s*(?:(?<int>\d+)|(?<name>[^\s{}\[\]]+)|(?<illegal>\S+))\s*";
 
 impl Reader {
     pub fn new() -> Self {

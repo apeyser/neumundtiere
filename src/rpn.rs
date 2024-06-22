@@ -145,6 +145,51 @@ pub const DUP: StackOp = StackOp {
     op: fdup,
 };
 
+fn fexch(stack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
+    let len = stack.len();
+    if len < 2 {
+        return Error::StackUnderflow.into()
+    };
+    let [ref f1, ref f2] = stack[len-2..] else {panic!("Impossible")};
+    Ok((vec![f2.clone(), f1.clone()], 2))
+}
+pub const EXCH: StackOp = StackOp {
+    name: "exch",
+    op: fexch,
+};
+
+
+fn fshow(stack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
+    println!("Stack: {stack:?}");
+    Ok((vec![], 0))
+}
+pub const SHOW: StackOp = StackOp {
+    name: "==",
+    op: fshow,
+};
+
+fn fpeek(stack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
+    match stack.last() {
+        None => println!("Stack: empty"),
+        Some(frame) => println!("Top: {frame}"),
+    };
+    Ok((vec![], 0))
+}
+pub const PEEK: StackOp = StackOp {
+    name: "=",
+    op: fpeek,
+};
+
+
+fn fquit(_stack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
+    Err(Error::Quit)
+}
+pub const QUIT: StackOp = StackOp {
+    name: "quit",
+    op: fquit,
+};
+
+
 type BinaryOpFunc = fn(i64, i64) -> i64;
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct BinaryOp {
@@ -201,11 +246,17 @@ impl Dict {
     pub fn new() -> Self {
         Dict {
             dict: DictBase::from([
-                ("neg".into(), NEG.into()),
-                ("add".into(), ADD.into()),
-                ("sub".into(), SUB.into()),
-                ("pop".into(), POP.into()),
-                ("dup".into(), DUP.into()),
+                ("neg".into(),  NEG.into()),
+                ("add".into(),  ADD.into()),
+                ("+".into(),    ADD.into()),
+                ("sub".into(),  SUB.into()),
+                ("-".into(),    SUB.into()),
+                ("pop".into(),  POP.into()),
+                ("dup".into(),  DUP.into()),
+                ("exch".into(), EXCH.into()),
+                ("==".into(),   SHOW.into()),
+                ("=".into(),    PEEK.into()),
+                ("quit".into(), QUIT.into()),
             ])
         }
     }
@@ -223,6 +274,7 @@ pub struct Vm {
 
 #[derive(Debug)]
 pub enum Error {
+    Quit,
     StackUnderflow,
     OpType,
     Unknown(String),
@@ -292,8 +344,8 @@ impl Vm {
     }
 
     #[allow(dead_code)]
-    pub fn stack(&self) -> Vec<Frame> {
-        self.op_stack.clone()
+    pub fn stack(&self) -> &Vec<Frame> {
+        &self.op_stack
     }
 
     #[allow(dead_code)]
@@ -315,4 +367,92 @@ impl Vm {
     }
 }
 
-    
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::reader::Reader ;
+
+    #[test]
+    fn result() {
+        let mut vm = Vm::new();
+
+        let cmd: Vec<Frame> = vec![
+            3.into(),
+            1.into(),
+            ADD.into(),
+            NEG.into(),
+            2.into(),
+            SUB.into(),
+            NEG.into(),
+        ];
+        let None = vm.result(cmd) else {
+            panic!("Result: error")
+        };
+
+        let reader = Reader::new();
+        let Some(frames) = reader.result("1 2 add 3 sub") else {
+            panic!("Result: read error")
+        };
+        let None = vm.result(frames) else {
+            panic!("Result: error")
+        };
+    }
+
+    #[test]
+    fn exec() {
+        let mut vm = Vm::new();
+        let frames: Vec<Frame> = vec![
+            3.into(),
+            1.into(),
+            ADD.into(),
+            NEG.into(),
+            2.into(),
+            SUB.into(),
+            NEG.into(),
+        ];
+        match vm.exec(frames) {
+            Err(e) => panic!("Error {e:?}"),
+            Ok(None) => panic!("Empty stack"),
+            Ok(Some(frame)) => assert_eq!(Frame::Int(6), frame),
+        };
+
+        let reader = Reader::new();
+        match reader.parse("1 2 add 4 sub") {
+            Err(e)  => panic!("Parse error: {e:?}"),
+            Ok(frames) => match vm.exec(frames) {
+                Err(e) => panic!("Error {e:?}"),
+                Ok(None) => panic!("Empty stack"),
+                Ok(Some(frame)) => assert_eq!(Frame::Int(-1), frame),
+            },
+        };
+    }
+
+    #[test]
+    fn stacked() {
+        let mut vm = Vm::new();
+        let frames: Vec<Frame> = vec![
+            3.into(),
+            DUP.into(),
+            ADD.into(),
+            NEG.into(),
+            2.into(),
+            SUB.into(),
+            NEG.into(),
+        ];
+        match vm.exec(frames) {
+            Err(e) => panic!("Error {e:?}"),
+            Ok(None) => panic!("Empty stack"),
+            Ok(Some(frame)) => assert_eq!(Frame::Int(8), frame),
+        };
+
+        let reader = Reader::new();
+        match reader.parse("1 dup add 4 pop dup sub") {
+            Err(e)  => panic!("Parse error: {e:?}"),
+            Ok(frames) => match vm.exec(frames) {
+                Err(e) => panic!("Error {e:?}"),
+                Ok(None) => panic!("Empty stack"),
+                Ok(Some(frame)) => assert_eq!(Frame::Int(0), frame),
+            },
+        };
+    }
+}
