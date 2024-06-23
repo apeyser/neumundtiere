@@ -29,7 +29,7 @@ impl Display for Error {
 
 impl error::Error for Error {}
 
-static REGEX: &str = r"^\s*(?:(?<int>\d+)|(?<name>[^\s{}\[\]]+)|(?<illegal>\S+))\s*";
+static REGEX: &str = r"^\s*(?:(?<int>\d+)|(?<pname>/[^\s/{}\[\]]+)|(?<aname>[^\\s/{}\[\]]+)|(?<illegal>\S+))\s*";
 
 impl<'a> Reader<'a> {
     pub fn new(vm: &'a mut Vm) -> Self {
@@ -77,8 +77,10 @@ impl<'a> Reader<'a> {
                 Ok(i) => Ok(Frame::Num(i.into())),
                 Err(e) => Err(Error::IntParse(e)),
             }
-        } else if let Some(m) = captures.name("name") {
-            Ok(self.vm.intern(String::from(m.as_str())))
+        } else if let Some(m) = captures.name("pname") {
+            Ok(Frame::PassiveName(self.vm.intern(String::from(m.as_str()))))
+        } else if let Some(m) = captures.name("aname") {
+            Ok(Frame::ActiveName(self.vm.intern(String::from(m.as_str()))))
         } else if let Some(m) = captures.name("illegal") {
             Err(Error::IllegalSym(m.as_str().into()))
         } else {

@@ -8,11 +8,6 @@ use std::rc::Rc;
 use std::borrow::Borrow;
 use std::cell::RefCell;
 
-fn writer<T: fmt::Display>(f: &mut fmt::Formatter<'_>,
-                           s: &'static str,
-                           v: &T) -> fmt::Result
-  {write!(f, "{}: {}", s, v)}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Num {
     Int(i64),
@@ -182,7 +177,8 @@ pub enum Frame {
     UnaryOp(UnaryOp),
     BinaryOp(BinaryOp),
     StackOp(StackOp),
-    Name(Name),
+    ActiveName(Name),
+    PassiveName(Name),
 }
 
 impl From<Num> for Frame {
@@ -212,11 +208,12 @@ impl From<StackOp> for Frame {
 impl fmt::Display for Frame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
-            Frame::Num(v)       => writer(f, "Num", v),
-            Frame::StackOp(op)  => writer(f, "StackOp", op),
-            Frame::UnaryOp(op)  => writer(f, "UnaryOp", op),
-            Frame::BinaryOp(op) => writer(f, "BinaryOp", op),
-            Frame::Name(name)   => writer(f, "Name", name),
+            Frame::Num(v)       => write!(f, "{v}"),
+            Frame::StackOp(op)  => write!(f, "{op}"),
+            Frame::UnaryOp(op)  => write!(f, "{op}"),
+            Frame::BinaryOp(op) => write!(f, "{op}"),
+            Frame::ActiveName(name)  => write!(f, "{name}"),
+            Frame::PassiveName(name) => write!(f, "/{name}"),
         }
     }
 }
@@ -508,8 +505,8 @@ impl Vm {
         }
     }
 
-    pub fn intern(&mut self, string: String) -> Frame {
-        Frame::Name(self.intern_table.intern(string))
+    pub fn intern(&mut self, string: String) -> Name {
+        self.intern_table.intern(string)
     }
 
     pub fn exec(&mut self, mut frames: Vec<Frame>) -> Result<Option<Frame>, Error>
@@ -522,7 +519,7 @@ impl Vm {
             };
             
             match frame {
-                Frame::Name(name) => {
+                Frame::ActiveName(name) => {
                     let Some(f) = self.dict.get(name.to_string()) else {
                         return Error::Unknown(name.to_string()).into()
                     };
