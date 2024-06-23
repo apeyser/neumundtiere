@@ -2,7 +2,6 @@ use std::io;
 use std::io::Write;
 
 use super::*;
-use rpn::Vm;
 use reader::Reader;
 
 pub struct Lines {
@@ -28,6 +27,6 @@ impl Iterator for Lines {
     }
 }
 
-pub fn exec(vm: &mut Vm, reader: &Reader) -> MainResult {
-    super::exec(vm, reader, Lines::new())
+pub fn exec(reader: &mut Reader) -> MainResult {
+    super::exec(reader, Lines::new())
 }

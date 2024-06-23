@@ -8,7 +8,6 @@ use rustyline::{self, DefaultEditor};
 use dirs::home_dir;
 
 use super::*;
-use rpn::Vm;
 use reader::Reader;
 
 pub struct Lines {
@@ -78,9 +77,9 @@ impl Iterator for Lines {
     }
 }
 
-pub fn exec(vm: &mut Vm, reader: &Reader) -> MainResult {
+pub fn exec(reader: &mut Reader) -> MainResult {
     match Lines::new() {
-        Ok(lines) => super::exec(vm, reader, lines),
+        Ok(lines) => super::exec(reader, lines),
         Err(err) => {
             println!("Readline error: {err}");
             Err(Box::new(err))

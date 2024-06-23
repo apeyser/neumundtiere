@@ -1,12 +1,13 @@
 use std::fmt::{self, Display, Formatter};
 use std::error;
 
-use crate::rpn::*;
+use super::rpn::{self, *};
 use regex::{Regex, Captures};
 use std::str::FromStr;
 
-pub struct Reader {
+pub struct Reader<'a> {
     regex: Regex,
+    vm: &'a mut Vm,
 }
 
 #[derive(Debug, Clone)]
@@ -30,15 +31,15 @@ impl error::Error for Error {}
 
 static REGEX: &str = r"^\s*(?:(?<int>\d+)|(?<name>[^\s{}\[\]]+)|(?<illegal>\S+))\s*";
 
-impl Reader {
-    pub fn new() -> Self {
+impl<'a> Reader<'a> {
+    pub fn new(vm: &'a mut Vm) -> Self {
         match Regex::new(REGEX) {
             Err(err) => panic!("Failed regex: {:?}", err),
-            Ok(regex) => Reader {regex},
+            Ok(regex) => Reader {regex, vm},
         }
     }
 
-    pub fn parse(&self, string: String) -> Result<Vec<Frame>, Error> {
+    pub fn parse(&mut self, string: String) -> Result<Vec<Frame>, Error> {
         let mut vec = Vec::<Frame>::new();
         let mut string = string.as_str();
         while string.len() > 0 {
@@ -49,14 +50,18 @@ impl Reader {
                 panic!("Bad capture: {:?}", captures)
             };
             string = &string[m.end()..];
-            vec.push(Self::convert(captures)?);
+            vec.push(self.convert(captures)?);
         };
         
         Ok(vec)
     }
 
+    pub fn exec(&mut self, frames: Vec<Frame>) -> Result<Option<Frame>, rpn::Error> {
+        self.vm.exec(frames)
+    }
+
     #[allow(dead_code)]
-    pub fn result(&self, string: String) -> Option<Vec<Frame>> {
+    pub fn result(&mut self, string: String) -> Option<Vec<Frame>> {
         match self.parse(string) {
             Err(e) => {
                 println!("Read failure {e:?}");
@@ -66,14 +71,14 @@ impl Reader {
         }
     }
 
-    fn convert(captures: Captures) -> Result<Frame, Error> {
+    fn convert(&mut self, captures: Captures) -> Result<Frame, Error> {
         if let Some(m) = captures.name("int") {
             match m.as_str().parse::<i64>() {
                 Ok(i) => Ok(Frame::Num(i.into())),
                 Err(e) => Err(Error::IntParse(e)),
             }
         } else if let Some(m) = captures.name("name") {
-            Ok(String::from(m.as_str()).into())
+            Ok(self.vm.intern(String::from(m.as_str())))
         } else if let Some(m) = captures.name("illegal") {
             Err(Error::IllegalSym(m.as_str().into()))
         } else {

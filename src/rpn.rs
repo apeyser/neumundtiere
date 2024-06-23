@@ -1,8 +1,12 @@
 use std::error;
-use std::fmt::{self, Display, Formatter};
+use std::fmt::{self, Display, Formatter, Debug};
 use std::convert::From;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::{Add,Sub,Div,Mul,Neg};
+use std::hash::{Hash, Hasher};
+use std::rc::Rc;
+use std::borrow::Borrow;
+use std::cell::RefCell;
 
 fn writer<T: fmt::Display>(f: &mut fmt::Formatter<'_>,
                            s: &'static str,
@@ -83,13 +87,104 @@ impl fmt::Display for Num {
     }
 }
 
+#[derive(Clone)]
+struct InternTable {
+    table: Rc<RefCell<HashSet<Rc<String>>>>,
+}
+
+impl InternTable {
+    pub fn new() -> Self {
+        InternTable{table: Rc::new(RefCell::new(HashSet::new()))}
+    }
+
+    pub fn remove(&mut self, string: &String) {
+        self.table.borrow_mut().remove(string);
+    }
+
+    pub fn intern(&mut self, string: String) -> Name {
+        {
+            if let Some(string) = self.table.borrow_mut().get(&string) {
+                return Name {string: string.clone(), table: self.clone()}
+            }
+        }
+
+        let name = Name {string: Rc::new(string), table: self.clone()};
+        self.insert(&name.string);
+        name
+    }
+
+    fn insert(&mut self, string: &Rc<String>) {
+        self.table.borrow_mut().insert(string.clone());
+    }
+}
+
+#[derive(Clone)]
+pub struct Name {
+    string: Rc<String>,
+    table: InternTable,
+}
+
+impl Drop for Name {
+    fn drop(&mut self) {
+        let string = &self.string;
+        if Rc::strong_count(string) == 2 {
+            self.table.remove(&**string);
+        }
+    }
+}
+
+impl Debug for Name {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.string)
+    }
+}
+
+impl Borrow<String> for Name {
+    fn borrow(&self) -> &String {
+        &*self.string
+    }
+}
+
+impl Hash for Name {
+    fn hash<H>(&self, state: &mut H)
+      where H: Hasher {
+        self.string.hash(state)
+    }
+}
+
+impl PartialEq for Name {
+    fn eq(&self, other: &Self) -> bool {
+        self.string == other.string
+    }
+}
+
+impl PartialEq<String> for Name {
+    fn eq(&self, other: &String) -> bool {
+        &*self.string == other
+    }
+}
+
+impl PartialEq<Name> for String {
+    fn eq(&self, other: &Name) -> bool {
+        self == &*other.string
+    }
+}
+
+impl Eq for Name {}
+
+impl fmt::Display for Name {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", &*self.string)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Frame {
     Num(Num),
     UnaryOp(UnaryOp),
     BinaryOp(BinaryOp),
     StackOp(StackOp),
-    Name(String),
+    Name(Name),
 }
 
 impl From<Num> for Frame {
@@ -113,12 +208,6 @@ impl From<BinaryOp> for Frame {
 impl From<StackOp> for Frame {
     fn from(item: StackOp) -> Self {
         Frame::StackOp(item)
-    }
-}
-
-impl From<String> for Frame {
-    fn from(item: String) -> Self {
-        Frame::Name(item)
     }
 }
 
@@ -165,21 +254,29 @@ pub const NEG: UnaryOp = UnaryOp {
     op: |a| -a,
 };
 
-type StackOpFunc = fn(&Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>;
+type StackOpFunc = fn(&Vec<Frame>, &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>;
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct StackOp {
     name: &'static str,
     op: StackOpFunc,
+    n: usize,
 }
 
 impl StackOp {
     fn exec(&self, vm: &mut Vm) -> Option<Error> {
         let stack = &mut vm.op_stack;
-        let (mut substack, n) = match (self.op)(stack) {
+        let n = self.n;
+        let len = stack.len();
+        if len < n {
+            return Error::StackUnderflow.into()
+        }
+
+        let len = len-n;
+        let substack = stack.split_off(len);
+        let (mut substack, n) = match (self.op)(stack, &substack) {
             Ok((substack, n)) => (substack, n),
             Err(e) => return e.into(),
         };
-        let len = stack.len();
         if len < n {
             return Error::StackUnderflow.into()
         };
@@ -195,60 +292,63 @@ impl fmt::Display for StackOp {
     }
 }
 
-fn fpop(_stack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
+fn fpop(_stack: &Vec<Frame>, _substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
+{
     Ok((vec![], 1))
 }
 pub const POP: StackOp = StackOp {
     name: "pop",
     op: fpop,
+    n: 1,
 };
 
-fn fclear(stack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
+fn fclear(stack: &Vec<Frame>, _substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
     Ok((vec![], stack.len()))
 }
 pub const CLEAR: StackOp = StackOp {
     name: "clear",
     op: fclear,
+    n: 0,
 };
 
-fn fdup(stack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
-    let len = stack.len();
-    if len == 0 {
-        return Error::StackUnderflow.into()
-    };
-    Ok((stack[len-1..].into(), 0))
+fn fdup(_stack: &Vec<Frame>, substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
+{
+    let last = &substack[0];
+    Ok((vec![last.clone(), last.clone()], 0))
 }
 pub const DUP: StackOp = StackOp {
     name: "dup",
     op: fdup,
+    n: 1,
 };
 
-fn fexch(stack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
-    let len = stack.len();
-    if len < 2 {
-        return Error::StackUnderflow.into()
-    };
-    let [ref f1, ref f2] = stack[len-2..] else {panic!("Impossible")};
-    Ok((vec![f2.clone(), f1.clone()], 2))
+fn fexch(_stack: &Vec<Frame>, substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
+{
+    let [ref f1, ref f2] = substack[..2] else {panic!("Impossible")};
+    Ok((vec![f1.clone(), f2.clone()], 0))
 }
 pub const EXCH: StackOp = StackOp {
     name: "exch",
     op: fexch,
+    n: 2,
 };
 
-fn fshow(stack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
+fn fshow(stack: &Vec<Frame>, _substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
     println!("Stack:");
     for v in stack.into_iter().rev() {
         println!("  {v}");
     };
+    println!("-----");
     Ok((vec![], 0))
 }
 pub const SHOW: StackOp = StackOp {
     name: "==",
     op: fshow,
+    n: 0,
 };
 
-fn fpeek(stack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
+fn fpeek(stack: &Vec<Frame>, _substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
+{
     match stack.last() {
         None => println!("Stack: empty"),
         Some(frame) => println!("Top: {frame}"),
@@ -258,14 +358,17 @@ fn fpeek(stack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
 pub const PEEK: StackOp = StackOp {
     name: "=",
     op: fpeek,
+    n: 0,
 };
 
-fn fquit(_stack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
+fn fquit(_stack: &Vec<Frame>, _substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
+{
     Err(Error::Quit)
 }
 pub const QUIT: StackOp = StackOp {
     name: "quit",
     op: fquit,
+    n: 0,
 };
 
 type BinaryOpFunc = fn(Num, Num) -> Num;
@@ -325,29 +428,29 @@ pub const DIV: BinaryOp = BinaryOp {
 type DictBase = HashMap<String, Frame>;
 
 struct Dict {
-    dict: DictBase
+    dict: DictBase,
 }
 
 impl Dict {
     pub fn new() -> Self {
         Dict {
-            dict: DictBase::from([
-                ("neg".into(),  NEG.into()),
-                ("add".into(),  ADD.into()),
-                ("+".into(),    ADD.into()),
-                ("sub".into(),  SUB.into()),
-                ("-".into(),    SUB.into()),
-                ("mul".into(),  MUL.into()),
-                ("*".into(),    MUL.into()),
-                ("div".into(),  DIV.into()),
-                ("/".into(),    DIV.into()),
-                ("NaN".into(),  Num::NaN.into()),
-                ("pop".into(),  POP.into()),
-                ("dup".into(),  DUP.into()),
-                ("exch".into(), EXCH.into()),
-                ("==".into(),   SHOW.into()),
-                ("=".into(),    PEEK.into()),
-                ("quit".into(), QUIT.into()),
+            dict: HashMap::from([
+                ("neg".into(),   NEG.into()),
+                ("add".into(),   ADD.into()),
+                ("+".into(),     ADD.into()),
+                ("sub".into(),   SUB.into()),
+                ("-".into(),     SUB.into()),
+                ("mul".into(),   MUL.into()),
+                ("*".into(),     MUL.into()),
+                ("div".into(),   DIV.into()),
+                ("/".into(),     DIV.into()),
+                ("NaN".into(),   Num::NaN.into()),
+                ("pop".into(),   POP.into()),
+                ("dup".into(),   DUP.into()),
+                ("exch".into(),  EXCH.into()),
+                ("==".into(),    SHOW.into()),
+                ("=".into(),     PEEK.into()),
+                ("quit".into(),  QUIT.into()),
                 ("clear".into(), CLEAR.into()),
             ])
         }
@@ -356,12 +459,18 @@ impl Dict {
     pub fn get(&self, string: String) -> Option<Frame> {
         self.dict.get::<String>(&string).cloned()
     }
+
+    #[allow(dead_code)]
+    pub fn insert(&mut self, string: String, frame: Frame) {
+        self.dict.insert(string, frame);
+    }
 }
 
 pub struct Vm {
     op_stack: Vec<Frame>,
     exec_stack: Vec<Frame>,
     dict: Dict,
+    intern_table: InternTable,
 }
 
 #[derive(Debug, Clone)]
@@ -397,7 +506,12 @@ impl Vm {
             op_stack: Vec::new(),
             exec_stack: Vec::new(),
             dict: Dict::new(),
+            intern_table: InternTable::new(),
         }
+    }
+
+    pub fn intern(&mut self, string: String) -> Frame {
+        Frame::Name(self.intern_table.intern(string))
     }
 
     pub fn exec(&mut self, mut frames: Vec<Frame>) -> Result<Option<Frame>, Error>
@@ -410,9 +524,9 @@ impl Vm {
             };
             
             match frame {
-                Frame::Name(s) => {
-                    let Some(f) = self.dict.get(s.clone()) else {
-                        return Error::Unknown(s).into()
+                Frame::Name(name) => {
+                    let Some(f) = self.dict.get(name.to_string()) else {
+                        return Error::Unknown(name.to_string()).into()
                     };
                     self.exec_stack.push(f);
                 },

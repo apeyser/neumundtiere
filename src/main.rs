@@ -48,38 +48,39 @@ impl Cli {
     }
 }
 
-fn from_file(vm: &mut Vm, reader: &Reader, path: PathBuf) -> MainResult {
+fn from_file(reader: &mut Reader, path: PathBuf) -> MainResult {
     match fs::read_to_string(path) {
-        Ok(string) => term::string::exec(vm, reader, string),
+        Ok(string) => term::string::exec(reader, string),
         Err(err) => Err(Box::new(err)),
     }
 }
 
-fn default(vm: &mut Vm, reader: &Reader) -> MainResult {
+fn default(reader: &mut Reader) -> MainResult {
     if std::io::stdout().is_terminal() {
-        term::readline::exec(vm, reader)
+        term::readline::exec(reader)
     }
     else {
-        term::line::exec(vm, reader)
+        term::line::exec(reader)
     }
 }
 
 fn main() -> MainResult {
     let cli = Cli::parse();
     let vm = &mut Vm::new();
-    let reader = &Reader::new();
-
-    let result = match cli.command() {
-        Command::Default => default(vm, reader),
-        Command::File{name} => from_file(vm, reader, name),
-        Command::String{string} => term::string::exec(vm, reader, string),
-        Command::Line => term::line::exec(vm, reader),
-        Command::Term => term::readline::exec(vm, reader),
+    let result = {
+        let reader = &mut Reader::new(vm);
+        match cli.command() {
+            Command::Default => default(reader),
+            Command::File{name} => from_file(reader, name),
+            Command::String{string} => term::string::exec(reader, string),
+            Command::Line => term::line::exec(reader),
+            Command::Term => term::readline::exec(reader),
+        }
     };
 
     let stack = vm.stack();
     if stack.len() > 0 {
-        println!("Quitting with stack {:?}", vm.stack())
+        println!("Quitting with stack {:?}", stack)
     };
 
     result
