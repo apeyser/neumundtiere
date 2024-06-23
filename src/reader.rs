@@ -8,7 +8,7 @@ pub struct Reader<'a> {
     vm: &'a mut Vm,
 }
 
-static REGEX: &str = r"^\s*(?:(?<int>\d+)|/(?<pname>[^\s/{}\[\]()]+)|(?<aname>[^\s/{}\[\]()]+)|\((?<string>(?:\\\(|[^\)])*)\)|(?<illegal>\S+))\s*";
+static REGEX: &str = r"^\s*(?:(?<int>\d+)|/(?<pname>[^\s/{}\[\]()]+)|(?<aname>[^\s/{}\[\]()]+)|\((?<string>(?:\\\(|[^\)])*)\)|(?<mark>\[)|(?<mklist>\])|(?<illegal>\S+))\s*";
 
 impl<'a> Reader<'a> {
     pub fn new(vm: &'a mut Vm) -> Self {
@@ -56,6 +56,10 @@ impl<'a> Reader<'a> {
                 Ok(i) => Ok(Frame::Num(i.into())),
                 Err(e) => Err(Error::IntParse(e)),
             }
+        } else if let Some(_) = captures.name("mark") {
+            Ok(MARK.into())
+        } else if let Some(_) = captures.name("mklist") {
+            Ok(MKLIST.into())
         } else if let Some(m) = captures.name("pname") {
             Ok(Passive::Name(self.vm.intern(String::from(m.as_str()))).into())
         } else if let Some(m) = captures.name("aname") {

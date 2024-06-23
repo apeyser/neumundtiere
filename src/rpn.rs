@@ -184,6 +184,8 @@ impl fmt::Display for Name {
 pub enum Active {
     String(String),
     Name(Name),
+    Mark,
+    List(Vec<Frame>),
 }
 
 impl From<String> for Active {
@@ -198,11 +200,25 @@ impl From<Name> for Active {
     }
 }
 
+impl From<Vec<Frame>> for Active {
+    fn from(item: Vec<Frame>) -> Self {
+        Active::List(item)
+    }
+}
+
 impl fmt::Display for Active {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
             Active::String(string) => write!(f, "~({string})"),
             Active::Name(name) => write!(f, "~/({name})"),
+            Active::Mark => write!(f, "{{"),
+            Active::List(frames) => {
+                write!(f, "{{ ")?;
+                for frame in frames {
+                    write!(f, "{frame} ")?
+                };
+                write!(f, "}}")
+            }
         }
     }
 }
@@ -211,6 +227,8 @@ impl fmt::Display for Active {
 pub enum Passive {
     String(String),
     Name(Name),
+    Mark,
+    List(Vec<Frame>),
 }
 
 impl From<String> for Passive {
@@ -225,11 +243,25 @@ impl From<Name> for Passive {
     }
 }
 
+impl From<Vec<Frame>> for Passive {
+    fn from(item: Vec<Frame>) -> Self {
+        Passive::List(item)
+    }
+}
+
 impl fmt::Display for Passive {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
             Passive::String(string) => write!(f, "({string})"),
             Passive::Name(name) => write!(f, "/({name})"),
+            Passive::Mark => write!(f, "["),
+            Passive::List(frames) => {
+                write!(f, "[ ")?;
+                for frame in frames {
+                    write!(f, "{frame} ")?
+                };
+                write!(f, "]")
+            }
         }
     }
 }
@@ -443,6 +475,37 @@ pub const PEEK: StackOp = StackOp {
     n: 0,
 };
 
+fn fmark(_stack: &Vec<Frame>, _substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
+{
+    Ok((vec![Passive::Mark.into()], 0))
+}
+pub const MARK: StackOp = StackOp {
+    name: "mark",
+    op: fmark,
+    n: 0,
+};
+
+fn fmklist(stack: &Vec<Frame>, _substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
+{
+    let mark = Frame::Passive(Passive::Mark);
+    let r: Vec<Frame>
+        = stack.into_iter().cloned().rev()
+               .take_while(|frame| *frame != mark)
+               .collect::<Vec<Frame>>().into_iter()
+               .rev().collect();
+    
+    if r.len() == stack.len() {
+        Err(Error::StackUnderflow)
+    } else {
+        Ok((vec![Frame::Passive(r.clone().into())], r.len()+1))
+    }
+}
+pub const MKLIST: StackOp = StackOp {
+    name: "mklist",
+    op: fmklist,
+    n: 0,
+};
+
 fn fquit(_stack: &Vec<Frame>, _substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
 {
     Err(Error::Quit)
@@ -533,6 +596,8 @@ fn mkpass(stack: &Vec<Frame>, _vm: &mut Vm) -> Result<Vec<Frame>, Error> {
         Frame::Active(active) => match active {
             Active::Name(name) => Passive::Name(name),
             Active::String(string) => Passive::String(string),
+            Active::Mark => Passive::Mark,
+            Active::List(list) => Passive::List(list),
         }
         _ => return Err(Error::OpType),
     };
@@ -549,6 +614,8 @@ fn mkact(stack: &Vec<Frame>, _vm: &mut Vm) -> Result<Vec<Frame>, Error> {
         Frame::Passive(passive) => match passive {
             Passive::Name(name) => Active::Name(name),
             Passive::String(string) => Active::String(string),
+            Passive::Mark => Active::Mark,
+            Passive::List(list) => Active::List(list),
         }
         _ => return Err(Error::OpType),
     };
@@ -663,6 +730,8 @@ impl Dict {
                 (t.intern("mkact".into()), MKACT.into()),
                 (t.intern("mkpass".into()), MKPASS.into()),
                 (t.intern("exec".into()), EXEC.into()),
+                (t.intern("mark".into()), MARK.into()),
+                (t.intern("mklist".into()), MKLIST.into()),
             ])
         }
     }
