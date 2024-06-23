@@ -526,25 +526,19 @@ impl Vm {
                     let Some(f) = self.dict.get(name.to_string()) else {
                         return Error::Unknown(name.to_string()).into()
                     };
-                    self.exec_stack.push(f);
+                    self.exec_stack.push(f)
                 },
 
-                Frame::UnaryOp(op) => {
-                    if let Some(e) = op.exec(self) {
-                        return e.into()
-                    }
+                Frame::UnaryOp(op) => if let Some(e) = op.exec(self) {
+                    return e.into()
                 },
                 
-                Frame::BinaryOp(op) => {
-                    if let Some(e) = op.exec(self) {
-                        return e.into()
-                    }
+                Frame::BinaryOp(op) => if let Some(e) = op.exec(self) {
+                    return e.into()
                 },
 
-                Frame::StackOp(op) => {
-                    if let Some(e) = op.exec(self) {
-                        return e.into()
-                    }
+                Frame::StackOp(op) => if let Some(e) = op.exec(self) {
+                    return e.into()
                 },
 
                 other => self.op_stack.push(other),
