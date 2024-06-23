@@ -1,5 +1,4 @@
-use std::error;
-use std::fmt::{self, Display, Formatter, Debug};
+use std::fmt::{self, Formatter, Debug};
 use std::convert::From;
 use std::collections::{HashMap, HashSet};
 use std::ops::{Add,Sub,Div,Mul,Neg};
@@ -7,6 +6,10 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::borrow::Borrow;
 use std::cell::RefCell;
+
+use super::term;
+use super::error::*;
+use super::reader::Reader;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Num {
@@ -126,6 +129,12 @@ impl Drop for Name {
     }
 }
 
+impl Into<String> for Name {
+    fn into(self) -> String {
+        String::clone(&*self.string)
+    }
+}
+
 impl Debug for Name {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{}", self.string)
@@ -172,13 +181,68 @@ impl fmt::Display for Name {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum Active {
+    String(String),
+    Name(Name),
+}
+
+impl From<String> for Active {
+    fn from(item: String) -> Self {
+        Active::String(item)
+    }
+}
+
+impl From<Name> for Active {
+    fn from(item: Name) -> Self {
+        Active::Name(item)
+    }
+}
+
+impl fmt::Display for Active {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self {
+            Active::String(string) => write!(f, "~({string})"),
+            Active::Name(name) => write!(f, "~/({name})"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Passive {
+    String(String),
+    Name(Name),
+}
+
+impl From<String> for Passive {
+    fn from(item: String) -> Self {
+        Passive::String(item)
+    }
+}
+
+impl From<Name> for Passive {
+    fn from(item: Name) -> Self {
+        Passive::Name(item)
+    }
+}
+
+impl fmt::Display for Passive {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self {
+            Passive::String(string) => write!(f, "({string})"),
+            Passive::Name(name) => write!(f, "/({name})"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Frame {
     Num(Num),
     UnaryOp(UnaryOp),
     BinaryOp(BinaryOp),
     StackOp(StackOp),
-    ActiveName(Name),
-    PassiveName(Name),
+    VmOp(VmOp),
+    Active(Active),
+    Passive(Passive),
 }
 
 impl From<Num> for Frame {
@@ -205,17 +269,40 @@ impl From<StackOp> for Frame {
     }
 }
 
+impl From<VmOp> for Frame {
+    fn from(item: VmOp) -> Self {
+        Frame::VmOp(item)
+    }
+}
+
+impl From<Passive> for Frame {
+    fn from(item: Passive) -> Self {
+        Frame::Passive(item)
+    }
+}
+
+impl From<Active> for Frame {
+    fn from(item: Active) -> Self {
+        Frame::Active(item)
+    }
+}
+
 impl fmt::Display for Frame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
             Frame::Num(v)       => write!(f, "{v}"),
             Frame::StackOp(op)  => write!(f, "{op}"),
+            Frame::VmOp(op)     => write!(f, "{op}"),
             Frame::UnaryOp(op)  => write!(f, "{op}"),
             Frame::BinaryOp(op) => write!(f, "{op}"),
-            Frame::ActiveName(name)  => write!(f, "{name}"),
-            Frame::PassiveName(name) => write!(f, "/{name}"),
+            Frame::Active(frame)  => write!(f, "{frame}"),
+            Frame::Passive(frame) => write!(f, "{frame}"),
         }
     }
+}
+
+trait Op {
+    fn exec(&self, vm: &mut Vm) -> Option<Error>;
 }
 
 type UnaryOpFunc = fn(Num) -> Num;
@@ -225,7 +312,7 @@ pub struct UnaryOp {
     op: UnaryOpFunc,
 }
 
-impl UnaryOp {
+impl Op for UnaryOp {
     fn exec(&self, vm: &mut Vm) -> Option<Error> {
         let i = match vm.op_stack.pop() {
             None => return Error::StackUnderflow.into(),
@@ -257,7 +344,7 @@ pub struct StackOp {
     n: usize,
 }
 
-impl StackOp {
+impl Op for StackOp {
     fn exec(&self, vm: &mut Vm) -> Option<Error> {
         let stack = &mut vm.op_stack;
         let n = self.n;
@@ -366,6 +453,129 @@ pub const QUIT: StackOp = StackOp {
     n: 0,
 };
 
+type VmOpFunc = fn(_stack: &Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error>;
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct VmOp {
+    name: &'static str,
+    op: VmOpFunc,
+    n: usize,
+}
+
+impl Op for VmOp {
+    fn exec(&self, vm: &mut Vm) -> Option<Error> {
+        let n = self.n;
+        let len = vm.op_stack.len();
+        if len < n {
+            return Error::StackUnderflow.into()
+        }
+
+        let len = len-n;
+        let substack = vm.op_stack.split_off(len);
+        match (self.op)(&substack, vm) {
+            Ok(mut substack) => {
+                vm.op_stack.append(&mut substack);
+                None
+            },
+            Err(error) => return Some(error),
+        }
+    }
+}
+
+impl fmt::Display for VmOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+fn name_op(stack: &Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
+    match (stack[0].clone(), stack[1].clone()) {
+        (frame, Frame::Passive(Passive::Name(name))) => {
+            vm.dict.insert(name, frame);
+            Ok(vec![])
+        },
+        _ => Err(Error::OpType),
+    }           
+}
+pub const NAME: VmOp = VmOp {
+    name: "name",
+    op: |stack, vm| name_op(stack, vm),
+    n: 2,
+};
+
+fn mkname(stack: &Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
+    match stack[0].clone() {
+        Frame::Passive(Passive::String(string))
+            => Ok(vec![Passive::Name(vm.intern_table.intern(string)).into()]),
+        _ => Err(Error::OpType),
+    }       
+}
+pub const MKNAME: VmOp = VmOp {
+    name: "mkname",
+    op: |stack, vm| mkname(stack, vm),
+    n: 1,
+};
+
+fn mkstr(stack: &Vec<Frame>, _vm: &mut Vm) -> Result<Vec<Frame>, Error> {
+    match stack[0].clone() {
+        Frame::Passive(Passive::Name(name))
+            => Ok(vec![Frame::Passive(name.into())]),
+        _ => Err(Error::OpType),
+    }
+}
+pub const MKSTR: VmOp = VmOp {
+    name: "mkname",
+    op: |stack, vm| mkstr(stack, vm),
+    n: 1,
+};
+
+fn mkpass(stack: &Vec<Frame>, _vm: &mut Vm) -> Result<Vec<Frame>, Error> {
+    let passive = match stack[0].clone() {
+        Frame::Active(active) => match active {
+            Active::Name(name) => Passive::Name(name),
+            Active::String(string) => Passive::String(string),
+        }
+        _ => return Err(Error::OpType),
+    };
+    Ok(vec![Frame::Passive(passive)])
+}
+pub const MKPASS: VmOp = VmOp {
+    name: "mkpass",
+    op: |stack, vm| mkpass(stack, vm),
+    n: 1,
+};
+
+fn mkact(stack: &Vec<Frame>, _vm: &mut Vm) -> Result<Vec<Frame>, Error> {
+    let active = match stack[0].clone() {
+        Frame::Passive(passive) => match passive {
+            Passive::Name(name) => Active::Name(name),
+            Passive::String(string) => Active::String(string),
+        }
+        _ => return Err(Error::OpType),
+    };
+    Ok(vec![Frame::Active(active)])
+}
+pub const MKACT: VmOp = VmOp {
+    name: "mkact",
+    op: |stack, vm| mkact(stack, vm),
+    n: 1,
+};
+
+fn op_exec(stack: &Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
+    match stack[0].clone() {
+        frame@Frame::Active(_) => {
+            vm.exec_stack.push(frame);
+            Ok(vec![])
+        },
+        _ => Err(Error::OpType),
+    }
+}
+pub const EXEC: VmOp = VmOp {
+    name: "exec",
+    op: |stack, vm| op_exec(stack, vm),
+    n: 1,
+};
+
+
 type BinaryOpFunc = fn(Num, Num) -> Num;
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct BinaryOp {
@@ -379,7 +589,7 @@ impl fmt::Display for BinaryOp {
     }
 }
 
-impl BinaryOp {
+impl Op for BinaryOp {
     fn exec(&self, vm: &mut Vm) -> Option<Error> {
         let len = vm.op_stack.len();
         if len < 2 {
@@ -420,33 +630,39 @@ pub const DIV: BinaryOp = BinaryOp {
     op: |a, b| a/b,
 };
 
-type DictBase = HashMap<String, Frame>;
+type DictBase = HashMap<Name, Frame>;
 
 struct Dict {
     dict: DictBase,
 }
 
 impl Dict {
-    pub fn new() -> Self {
+    pub fn new(t: &mut InternTable) -> Self {
         Dict {
             dict: HashMap::from([
-                ("neg".into(),   NEG.into()),
-                ("add".into(),   ADD.into()),
-                ("+".into(),     ADD.into()),
-                ("sub".into(),   SUB.into()),
-                ("-".into(),     SUB.into()),
-                ("mul".into(),   MUL.into()),
-                ("*".into(),     MUL.into()),
-                ("div".into(),   DIV.into()),
-                ("/".into(),     DIV.into()),
-                ("NaN".into(),   Num::NaN.into()),
-                ("pop".into(),   POP.into()),
-                ("dup".into(),   DUP.into()),
-                ("exch".into(),  EXCH.into()),
-                ("==".into(),    SHOW.into()),
-                ("=".into(),     PEEK.into()),
-                ("quit".into(),  QUIT.into()),
-                ("clear".into(), CLEAR.into()),
+                (t.intern("neg".into()),   NEG.into()),
+                (t.intern("add".into()),   ADD.into()),
+                (t.intern("+".into()),     ADD.into()),
+                (t.intern("sub".into()),   SUB.into()),
+                (t.intern("-".into()),     SUB.into()),
+                (t.intern("mul".into()),   MUL.into()),
+                (t.intern("*".into()),     MUL.into()),
+                (t.intern("div".into()),   DIV.into()),
+                (t.intern("/".into()),     DIV.into()),
+                (t.intern("NaN".into()),   Num::NaN.into()),
+                (t.intern("pop".into()),   POP.into()),
+                (t.intern("dup".into()),   DUP.into()),
+                (t.intern("exch".into()),  EXCH.into()),
+                (t.intern("==".into()),    SHOW.into()),
+                (t.intern("=".into()),     PEEK.into()),
+                (t.intern("quit".into()),  QUIT.into()),
+                (t.intern("clear".into()), CLEAR.into()),
+                (t.intern("name".into()),  NAME.into()),
+                (t.intern("mkname".into()), MKNAME.into()),
+                (t.intern("mkstr".into()), MKSTR.into()),
+                (t.intern("mkact".into()), MKACT.into()),
+                (t.intern("mkpass".into()), MKPASS.into()),
+                (t.intern("exec".into()), EXEC.into()),
             ])
         }
     }
@@ -455,9 +671,8 @@ impl Dict {
         self.dict.get::<String>(&string).cloned()
     }
 
-    #[allow(dead_code)]
-    pub fn insert(&mut self, string: String, frame: Frame) {
-        self.dict.insert(string, frame);
+    pub fn insert(&mut self, name: Name, frame: Frame) {
+        self.dict.insert(name, frame);
     }
 }
 
@@ -468,45 +683,26 @@ pub struct Vm {
     intern_table: InternTable,
 }
 
-#[derive(Debug, Clone)]
-pub enum Error {
-    Quit,
-    StackUnderflow,
-    OpType,
-    Unknown(String),
-}
-
-impl<T> Into<Result<T, Error>> for Error {
-    fn into(self) -> Result<T, Error> {
-        Err(self)
-    }
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Error::Quit => write!(f, "Quitting"),
-            Error::StackUnderflow => write!(f, "Stack underflow"),
-            Error::OpType => write!(f, "Illegal operand type"),
-            Error::Unknown(string) => write!(f, "Unknown name {string}"),
-        }
-    }
-}
-
-impl error::Error for Error {}
- 
 impl Vm {
     pub fn new() -> Self {
+        let mut intern_table = InternTable::new();
         Vm {
             op_stack: Vec::new(),
             exec_stack: Vec::new(),
-            dict: Dict::new(),
-            intern_table: InternTable::new(),
+            dict: Dict::new(&mut intern_table),
+            intern_table: intern_table,
         }
     }
 
     pub fn intern(&mut self, string: String) -> Name {
         self.intern_table.intern(string)
+    }
+
+    fn exec_op<T: Op>(&mut self, op: T) -> Result<(), Error> {
+        match op.exec(self) {
+            Some(e) => e.into(),
+            None => Ok(()),
+        }
     }
 
     pub fn exec(&mut self, mut frames: Vec<Frame>) -> Result<Option<Frame>, Error>
@@ -519,24 +715,26 @@ impl Vm {
             };
             
             match frame {
-                Frame::ActiveName(name) => {
+                Frame::Active(Active::Name(name)) => {
                     let Some(f) = self.dict.get(name.to_string()) else {
                         return Error::Unknown(name.to_string()).into()
                     };
                     self.exec_stack.push(f)
                 },
 
-                Frame::UnaryOp(op) => if let Some(e) = op.exec(self) {
-                    return e.into()
+                Frame::Active(Active::String(string)) => {
+                    let reader = &mut Reader::new(self);
+                    match term::exec_string(reader, string) {
+                        None => return Err(Error::Quit),
+                        Some(Err(err)) => return Err(err),
+                        Some(Ok(())) => (),
+                    }
                 },
                 
-                Frame::BinaryOp(op) => if let Some(e) = op.exec(self) {
-                    return e.into()
-                },
-
-                Frame::StackOp(op) => if let Some(e) = op.exec(self) {
-                    return e.into()
-                },
+                Frame::UnaryOp(op)  => self.exec_op(op)?,
+                Frame::BinaryOp(op) => self.exec_op(op)?,
+                Frame::StackOp(op)  => self.exec_op(op)?,
+                Frame::VmOp(op)     => self.exec_op(op)?,
 
                 other => self.op_stack.push(other),
             }

@@ -2,23 +2,23 @@ pub mod line;
 pub mod readline;
 pub mod string;
 
-use super::rpn;
+use super::error::*;
 use super::reader::{self, Reader};
 use super::MainResult;
 
-pub fn exec_string(reader: &mut Reader, string: String) -> Option<MainResult>
+pub fn exec_string(reader: &mut Reader, string: String) -> Option<Result<(), Error>>
 {
     let frames = match reader.parse(string) {
         Ok(frames) => frames,
-        Err(err) => return Some(Err(Box::new(err))),
+        Err(err) => return Some(Err(err)),
     };
     
     match reader.exec(frames) {
         Ok(_) => Some(Ok(())),
-        Err(ref err) => {
+        Err(err) => {
             match err {
-                rpn::Error::Quit => None,
-                err => return Some(Err(Box::new(err.clone()))),
+                Error::Quit => None,
+                err => Some(Err(err)),
             }
         }
     }

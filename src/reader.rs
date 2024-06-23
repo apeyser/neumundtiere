@@ -1,35 +1,14 @@
-use std::fmt::{self, Display, Formatter};
-use std::error;
-
-use super::rpn::{self, *};
 use regex::{Regex, Captures};
-use std::str::FromStr;
+
+use super::rpn::*;
+use super::error::*;
 
 pub struct Reader<'a> {
     regex: Regex,
     vm: &'a mut Vm,
 }
 
-#[derive(Debug, Clone)]
-pub enum Error {
-    IntParse(<i64 as FromStr>::Err),
-    IllegalSym(String),
-    Illformed(String),
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Error::IntParse(err) => write!(f, "Int parsing error: {err}"),
-            Error::IllegalSym(string) => write!(f, "Illegal symbol: {string}"),
-            Error::Illformed(string) => write!(f, "Illformed string: {string}"),
-        }
-    }
-}
-
-impl error::Error for Error {}
-
-static REGEX: &str = r"^\s*(?:(?<int>\d+)|(?<pname>/[^\s/{}\[\]]+)|(?<aname>[^\\s/{}\[\]]+)|(?<illegal>\S+))\s*";
+static REGEX: &str = r"^\s*(?:(?<int>\d+)|/(?<pname>[^\s/{}\[\]()]+)|(?<aname>[^\s/{}\[\]()]+)|\((?<string>(?:\\\(|[^\)])*)\)|(?<illegal>\S+))\s*";
 
 impl<'a> Reader<'a> {
     pub fn new(vm: &'a mut Vm) -> Self {
@@ -56,7 +35,7 @@ impl<'a> Reader<'a> {
         Ok(vec)
     }
 
-    pub fn exec(&mut self, frames: Vec<Frame>) -> Result<Option<Frame>, rpn::Error> {
+    pub fn exec(&mut self, frames: Vec<Frame>) -> Result<Option<Frame>, Error> {
         self.vm.exec(frames)
     }
 
@@ -78,9 +57,11 @@ impl<'a> Reader<'a> {
                 Err(e) => Err(Error::IntParse(e)),
             }
         } else if let Some(m) = captures.name("pname") {
-            Ok(Frame::PassiveName(self.vm.intern(String::from(m.as_str()))))
+            Ok(Passive::Name(self.vm.intern(String::from(m.as_str()))).into())
         } else if let Some(m) = captures.name("aname") {
-            Ok(Frame::ActiveName(self.vm.intern(String::from(m.as_str()))))
+            Ok(Active::Name(self.vm.intern(String::from(m.as_str()))).into())
+        } else if let Some(m) = captures.name("string") {
+            Ok(Passive::String(String::from(m.as_str())).into())
         } else if let Some(m) = captures.name("illegal") {
             Err(Error::IllegalSym(m.as_str().into()))
         } else {

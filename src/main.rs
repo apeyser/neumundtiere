@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 pub mod term;
 pub mod rpn;
 pub mod reader;
+pub mod error;
 
 use rpn::Vm;
 use reader::Reader;
