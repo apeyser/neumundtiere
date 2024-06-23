@@ -102,10 +102,8 @@ impl InternTable {
     }
 
     pub fn intern(&mut self, string: String) -> Name {
-        {
-            if let Some(string) = self.table.borrow_mut().get(&string) {
-                return Name {string: string.clone(), table: self.clone()}
-            }
+        if let Some(string) = self.table.borrow_mut().get(&string) {
+            return Name {string: string.clone(), table: self.clone()}
         }
 
         let name = Name {string: Rc::new(string), table: self.clone()};
@@ -294,7 +292,7 @@ impl fmt::Display for StackOp {
 
 fn fpop(_stack: &Vec<Frame>, _substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
 {
-    Ok((vec![], 1))
+    Ok((vec![], 0))
 }
 pub const POP: StackOp = StackOp {
     name: "pop",
@@ -325,7 +323,7 @@ pub const DUP: StackOp = StackOp {
 fn fexch(_stack: &Vec<Frame>, substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
 {
     let [ref f1, ref f2] = substack[..2] else {panic!("Impossible")};
-    Ok((vec![f1.clone(), f2.clone()], 0))
+    Ok((vec![f2.clone(), f1.clone()], 0))
 }
 pub const EXCH: StackOp = StackOp {
     name: "exch",
