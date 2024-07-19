@@ -1,6 +1,6 @@
 use regex::{Regex, RegexBuilder, Captures};
 
-use super::rpn::*;
+use super::vm::*;
 use super::error::*;
 
 pub struct Reader<'a> {

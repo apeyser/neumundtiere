@@ -7,11 +7,11 @@ use clap::{Parser, Subcommand};
 
 pub mod num;
 pub mod term;
-pub mod rpn;
+pub mod vm;
 pub mod reader;
 pub mod error;
 
-use rpn::Vm;
+use vm::Vm;
 use reader::Reader;
 
 type MainResult = Result<(), Box<dyn Error>>;
@@ -24,7 +24,7 @@ struct Cli {
 }
 
 #[derive(Subcommand, Debug, Clone)]
-#[command(after_help="Run rpn program.\nA command is optional -- no command is interpreted as \"default\"")]
+#[command(after_help="Run deuterostome vm program.\nA command is optional -- no command is interpreted as \"default\"")]
 enum Command {
     /// Interpret a file
     File {
