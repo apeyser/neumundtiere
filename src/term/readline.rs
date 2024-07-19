@@ -1,7 +1,8 @@
 use std::io;
 use std::io::Write;
 use std::ops::Drop;
-use std::path::{Path,PathBuf};
+use std::path::Path;
+use std::env::current_dir;
 
 use rustyline::error::ReadlineError;
 use rustyline::{self, DefaultEditor};
@@ -18,23 +19,31 @@ pub struct Lines {
 
 impl Lines {
     pub fn new() -> rustyline::Result<Self> {
-        let mut editor = DefaultEditor::new()?;
-        #[cfg(feature = "with-file-history")]
-        {
-            let save = match home_dir() {
-                None => PathBuf::from("./rpn.txt"),
-                Some(mut path_buf) => {
-                    path_buf.push("rpn.txt");
-                    path_buf
-                }
-            }.into_boxed_path();
-            if let Err(err) = editor.load_history(&*save) {
-                let path = save.display();
-                println!("Unable to read save file {path}: {err}");
+        Self::build(DefaultEditor::new()?)
+    }
+
+    #[cfg(feature = "with-file-history")]
+    fn build(mut editor: rustyline::DefaultEditor) -> rustyline::Result<Self> {
+        const HISTFILE: Option<&'static str> = option_env!("DEUTEROSTOME_HISTORY");
+        let histfile = HISTFILE.unwrap_or(".deuterostome-history");
+        let save = {
+            let mut path_buf = match home_dir() {
+                None => current_dir()?,
+                Some(path_buf) => path_buf,
             };
-            Ok(Self {save, editor})
-        }
-        #[cfg(not(feature = "with-file-history"))]
+            path_buf.push(histfile);
+            path_buf
+        }.into_boxed_path();
+            
+        if let Err(err) = editor.load_history(&*save) {
+            let path = save.display();
+            println!("Unable to read save file {path}: {err}");
+        };
+        Ok(Self {save, editor})
+    }
+    
+    #[cfg(not(feature = "with-file-history"))]
+    fn build(mut editor: rustyline::DefaultEditor) -> rustyline::Result<Self> {
         Ok(Self {editor})
     }
 }
