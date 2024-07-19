@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 pub mod num;
 pub mod term;
 pub mod vm;
+pub mod name;
 pub mod reader;
 pub mod error;
 
