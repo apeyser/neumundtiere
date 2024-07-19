@@ -4,7 +4,8 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone)]
 pub enum Error {
-    IntParse(<i64 as FromStr>::Err),
+    IntParse(<i64 as FromStr>::Err, String),
+    FloatParse(<f64 as FromStr>::Err, String),
     IllegalSym(String),
     Illformed(String),
     Quit,
@@ -22,13 +23,14 @@ impl<T> Into<Result<T, Error>> for Error {
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            Error::Quit => write!(f, "Quitting"),
-            Error::StackUnderflow => write!(f, "Stack underflow"),
-            Error::OpType => write!(f, "Illegal operand type"),
-            Error::Unknown(string) => write!(f, "Unknown name {string}"),
-            Error::IntParse(err) => write!(f, "Int parsing error: {err}"),
+            Error::Quit               => write!(f, "Quitting"),
+            Error::StackUnderflow     => write!(f, "Stack underflow"),
+            Error::OpType             => write!(f, "Illegal operand type"),
+            Error::Unknown(string)    => write!(f, "Unknown name {string}"),
+            Error::IntParse(err, s)   => write!(f, "Int parsing error: {err} ({s})"),
+            Error::FloatParse(err, s) => write!(f, "Float parsing error: {err} ({s})"),
             Error::IllegalSym(string) => write!(f, "Illegal symbol: {string}"),
-            Error::Illformed(string) => write!(f, "Illformed string: {string}"),
+            Error::Illformed(string)  => write!(f, "Illformed string: {string}"),
         }
     }
 }

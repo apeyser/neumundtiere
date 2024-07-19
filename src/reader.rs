@@ -1,4 +1,4 @@
-use regex::{Regex, Captures};
+use regex::{Regex, RegexBuilder, Captures};
 
 use super::rpn::*;
 use super::error::*;
@@ -8,11 +8,26 @@ pub struct Reader<'a> {
     vm: &'a mut Vm,
 }
 
-static REGEX: &str = r"^\s*(?:(?<int>\d+)|/(?<pname>[^\s/{}\[\]()]+)|(?<aname>[^\s/{}\[\]()]+)|\((?<string>(?:\\\(|[^\)])*)\)|(?<mark>\[)|(?<mklist>\])|(?<illegal>\S+))\s*";
+static REGEX: &str = r"
+^\s*
+(?:
+  (?<NaN>[*])
+ |(?<float>[+\-]?(?:(?:\d+[eE][+\-]?\d+)|(?:(?:\d+[.]\d*)|(?:[.]\d+))(?:[eE][+\-]?\d+)?))
+ |(?<int>[+\-]?\d+)
+ |/(?<pname>[^\s/{}\[\]()]+)
+ |(?<aname>[^\s/{}\[\]()]+)
+ |\((?<string>(?:\\\(|[^\)])*)\)
+ |(?<mark>\[)
+ |(?<mklist>\])
+ |(?<illegal>\S+)
+)\s*
+(?:[|][^\n]*(?:\n|$))?
+";
+
 
 impl<'a> Reader<'a> {
     pub fn new(vm: &'a mut Vm) -> Self {
-        match Regex::new(REGEX) {
+        match RegexBuilder::new(REGEX).ignore_whitespace(true).build() {
             Err(err) => panic!("Failed regex: {:?}", err),
             Ok(regex) => Reader {regex, vm},
         }
@@ -51,10 +66,17 @@ impl<'a> Reader<'a> {
     }
 
     fn convert(&mut self, captures: Captures) -> Result<Frame, Error> {
-        if let Some(m) = captures.name("int") {
+        if let Some(_) = captures.name("NaN") {
+            Ok(Num::NaN.into())
+        } else if let Some(m) = captures.name("float") {
+            match m.as_str().parse::<f64>() {
+                Ok(f)  => Ok(Frame::Num(f.into())),
+                Err(e) => Err(Error::FloatParse(e, String::from(m.as_str()))),
+            }
+        } else if let Some(m) = captures.name("int") {
             match m.as_str().parse::<i64>() {
                 Ok(i) => Ok(Frame::Num(i.into())),
-                Err(e) => Err(Error::IntParse(e)),
+                Err(e) => Err(Error::IntParse(e, String::from(m.as_str()))),
             }
         } else if let Some(_) = captures.name("mark") {
             Ok(MARK.into())
