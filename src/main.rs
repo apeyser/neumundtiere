@@ -82,7 +82,7 @@ fn main() -> MainResult {
 
     let stack = vm.stack();
     if stack.len() > 0 {
-        println!("Quitting with stack {:?}", stack)
+        eprintln!("Quitting with stack {:?}", stack)
     };
 
     result

@@ -30,7 +30,7 @@ pub fn exec<T>(reader: &mut Reader, lines: T) -> MainResult
     for line in lines {
         match exec_string(reader, line) {
             Some(Ok(())) => (),
-            Some(Err(err)) => println!("Error -- {err}"),
+            Some(Err(err)) => eprintln!("Error -- {err}"),
             None => return Ok(()),
         }
     };
