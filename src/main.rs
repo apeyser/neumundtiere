@@ -5,6 +5,7 @@ use std::error::Error;
 
 use clap::{Parser, Subcommand};
 
+pub mod num;
 pub mod term;
 pub mod rpn;
 pub mod reader;
