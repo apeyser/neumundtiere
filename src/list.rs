@@ -1,16 +1,21 @@
 use std::rc::{Rc, Weak};
 use std::cell::RefCell;
 use std::fmt;
+use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
+use std::sync::Mutex;
+
+use once_cell::sync::Lazy;
 
 use super::error::Error;
 use super::vm::Frame;
-use super::save::Saved;
+use super::save::{Saved, Unwrap};
 
 #[derive(Debug, Clone)]
 pub struct List {
     parent: Weak<RefCell<Saved>>,
     start: usize,
-    len: usize
+    len: usize,
 }
 
 impl PartialEq for List {
@@ -27,11 +32,8 @@ impl PartialEq for List {
 
 impl List {
     pub fn new(parent: &Rc<RefCell<Saved>>) -> Self {
-        #[allow(irrefutable_let_patterns)]
-        let Saved::List(ref list) = *parent.borrow() else {
-            panic!("Impossible object as list");
-        };
-        
+        let saved = &*parent.borrow();
+        let list = saved.unwrap();
         List {parent: Rc::<_>::downgrade(parent), start: 0, len: list.len()}
     }
 
@@ -53,11 +55,8 @@ impl List {
         };
 
         let parent = self.get_parent()?;
-        #[allow(irrefutable_let_patterns)]
-        let Saved::List(ref list) = *parent.borrow() else {
-            panic!("Impossible object as list");
-        };
-            
+        let saved = &*parent.borrow();
+        let list = saved.unwrap();
         Ok(list[self.start+index].clone())
     }
 
@@ -67,15 +66,12 @@ impl List {
         };
 
         let parent = match self.get_parent() {
-            Err(err)   => return Some(err),
+            Err(err) => return Some(err),
             Ok(parent) => parent,
         };
-        
-        #[allow(irrefutable_let_patterns)]
-        let Saved::List(ref mut list) = *parent.borrow_mut() else {
-            panic!("Impossible object as list");
-        };
 
+        let saved = &mut *parent.borrow_mut();
+        let list = saved.unwrap_mut();
         list[self.start+index] = frame.clone();
         None
     }
@@ -94,26 +90,57 @@ impl List {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ListFmt {
+    parent: usize,
+    start: usize,
+    len: usize,
+}
+
+impl ListFmt {
+    pub fn new(parent: &Rc<RefCell<Saved>>, start: usize, len: usize) -> Self {
+        Self {parent: parent.as_ptr() as usize, start, len}
+    }
+}
+
+impl Hash for ListFmt {
+    fn hash<H: Hasher>(&self, hasher: &mut H) {
+        self.start.hash(hasher);
+        self.len.hash(hasher);
+        hasher.write_usize(self.parent as usize);
+    }
+}
+
+static PENDING: Lazy<Mutex<HashSet<ListFmt>>> = Lazy::new(|| Mutex::new(HashSet::new()));
+
 impl fmt::Display for List {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.parent.upgrade() {
             None => write!(f, "-- Dropped --"),
             Some(parent) => {
+                let listfmt = ListFmt::new(&parent, self.start, self.len);
+                if PENDING.lock().unwrap().contains(&listfmt) {
+                    return write!(f, "...")
+                };
+
+                PENDING.lock().unwrap().insert(listfmt);
                 #[allow(irrefutable_let_patterns)]
                 let Saved::List(ref list) = *parent.borrow() else {
                     panic!("Impossible object as list");
                 };
-                    
-                match self.len {
-                    0 => write!(f, ""),
-                    1 => write!(f, "{}", list[self.start]),
+                
+                let r = match self.len {
+                    0   => write!(f, ""),
+                    1   => write!(f, "{}", list[self.start]),
                     len => {
                         for frame in &list[self.start..self.start+len-1] {
                             write!(f, "{frame} ")?;
                         };
                         write!(f, "{}", &list[self.start+len-1])
                     },
-                }
+                };
+                PENDING.lock().unwrap().remove(&listfmt);
+                r
             },
         }
     }

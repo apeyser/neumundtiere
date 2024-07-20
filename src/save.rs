@@ -11,6 +11,28 @@ pub enum Saved {
     List(Vec<Frame>),
 }
 
+pub trait Unwrap<T> {
+    fn unwrap(&self) -> &T;
+    fn unwrap_mut(&mut self) -> &mut T;
+}
+
+impl Unwrap<Vec<Frame>> for Saved {
+    fn unwrap(&self) -> &Vec<Frame> {
+        #[allow(unreachable_patterns)]
+        match self {
+            Saved::List(ref list) => list,
+            _ => panic!("Unwrapping Vec<Frame> from a non-list"),
+        }
+    }
+    fn unwrap_mut(&mut self) -> &mut Vec<Frame> {
+        #[allow(unreachable_patterns)]
+        match self {
+            Saved::List(ref mut list) => list,
+            _ => panic!("Unwrapping Vec<Frame> from a non-list"),
+        }
+    }
+}
+
 #[derive(Clone)]
 struct RcSaved(Rc<RefCell<Saved>>);
 
