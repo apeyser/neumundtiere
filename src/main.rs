@@ -13,6 +13,8 @@ pub mod reader;
 pub mod error;
 pub mod list;
 pub mod save;
+pub mod vminfo;
+pub mod vmops;
 
 use vm::Vm;
 use reader::Reader;

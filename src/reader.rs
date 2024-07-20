@@ -2,6 +2,7 @@ use regex::{Regex, RegexBuilder, Captures};
 
 use super::vm::*;
 use super::error::*;
+use super::vmops;
 
 pub struct Reader<'a> {
     regex: Regex,
@@ -11,8 +12,7 @@ pub struct Reader<'a> {
 static REGEX: &str = r"
 ^\s*
 (?:
-  (?<NaN>[*])
- |(?<float>[+\-]?(?:(?:\d+[eE][+\-]?\d+)|(?:(?:\d+[.]\d*)|(?:[.]\d+))(?:[eE][+\-]?\d+)?))
+  (?<float>[+\-]?(?:(?:\d+[eE][+\-]?\d+)|(?:(?:\d+[.]\d*)|(?:[.]\d+))(?:[eE][+\-]?\d+)?))
  |(?<int>[+\-]?\d+)
  |/(?<pname>[^\s/{}\[\]()]+)
  |(?<aname>[^\s/{}\[\]()]+)
@@ -66,9 +66,7 @@ impl<'a> Reader<'a> {
     }
 
     fn convert(&mut self, captures: Captures) -> Result<Frame, Error> {
-        if let Some(_) = captures.name("NaN") {
-            Ok(Num::NaN.into())
-        } else if let Some(m) = captures.name("float") {
+        if let Some(m) = captures.name("float") {
             match m.as_str().parse::<f64>() {
                 Ok(f)  => Ok(Frame::Num(f.into())),
                 Err(e) => Err(Error::FloatParse(e, String::from(m.as_str()))),
@@ -81,7 +79,7 @@ impl<'a> Reader<'a> {
         } else if let Some(_) = captures.name("mark") {
             Ok(Passive::Mark.into())
         } else if let Some(_) = captures.name("mklist") {
-            Ok(MKLIST.into())
+            Ok(vmops::MKLIST.into())
         } else if let Some(m) = captures.name("pname") {
             Ok(Passive::Name(self.vm.intern(String::from(m.as_str()))).into())
         } else if let Some(m) = captures.name("aname") {

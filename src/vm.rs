@@ -10,6 +10,8 @@ use super::reader::Reader;
 use super::name::{Name, InternTable};
 use super::save::Save;
 use super::list::List;
+use super::vminfo::{self, Vminfo};
+use super::vmops;
 
 pub use super::num::Num;
 
@@ -166,6 +168,11 @@ impl fmt::Display for Frame {
 
 trait Op {
     fn exec(&self, vm: &mut Vm) -> Option<Error>;
+    fn mkpair(&self, table: &mut InternTable) -> (Name, Frame) {
+        let (s, f) = self.from();
+        (table.intern(s.into()), f)
+    }
+    fn from(&self) -> (&'static str, Frame);
 }
 
 type UnaryOpFunc = fn(Num) -> Num;
@@ -176,6 +183,10 @@ pub struct UnaryOp {
 }
 
 impl Op for UnaryOp {
+    fn from(&self) -> (&'static str, Frame) {
+        (self.name, Frame::from(*self))
+    }
+    
     fn exec(&self, vm: &mut Vm) -> Option<Error> {
         let i = match vm.op_stack.pop() {
             None => return Error::StackUnderflow.into(),
@@ -208,6 +219,10 @@ pub struct StackOp {
 }
 
 impl Op for StackOp {
+    fn from(&self) -> (&'static str, Frame) {
+        (self.name, Frame::from(*self))
+    }
+    
     fn exec(&self, vm: &mut Vm) -> Option<Error> {
         let stack = &mut vm.op_stack;
         let n = self.n;
@@ -283,6 +298,10 @@ pub struct NaryOp {
 }
 
 impl Op for NaryOp {
+    fn from(&self) -> (&'static str, Frame) {
+        (self.name, Frame::from(*self))
+    }
+    
     fn exec(&self, vm: &mut Vm) -> Option<Error> {
         let stack = &mut vm.op_stack;
         let n = self.n;
@@ -485,7 +504,23 @@ pub struct VmOp {
     n: usize,
 }
 
+impl VmOp {
+    pub const fn new(name: &'static str, op: VmOpFunc, n: usize) -> Self {
+        Self {name, op, n}
+    }
+}
+
+impl fmt::Display for VmOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
 impl Op for VmOp {
+    fn from(&self) -> (&'static str, Frame) {
+        (self.name, Frame::from(*self))
+    }
+    
     fn exec(&self, vm: &mut Vm) -> Option<Error> {
         let n = self.n;
         let stack = &mut vm.op_stack;
@@ -506,98 +541,6 @@ impl Op for VmOp {
     }
 }
 
-impl fmt::Display for VmOp {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-
-fn name_op(stack: Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
-    let (frame, Frame::Passive(Passive::Name(name)))
-        = stack.into_iter().collect_tuple().unwrap()
-    else {
-        return Error::OpType.into()
-    };
-    
-    vm.dict.insert(name, frame);
-    Ok(vec![])
-}
-pub const NAME: VmOp = VmOp {
-    name: "name",
-    op: name_op,
-    n: 2,
-};
-
-fn mkname(mut stack: Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
-    let Frame::Passive(Passive::String(string)) = stack.pop().unwrap() else {
-        return Error::OpType.into()
-    };
-
-    let name = vm.intern_table.intern(string);
-    Ok(vec![Passive::Name(name).into()])
-}
-pub const MKNAME: VmOp = VmOp {
-    name: "mkname",
-    op: mkname,
-    n: 1,
-};
-
-fn mklist(_: Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
-    let mark = Frame::Passive(Passive::Mark);
-    let r: Vec<Frame>
-        = vm.op_stack.iter().cloned().rev()
-               .take_while(|frame| *frame != mark)
-               .collect::<Vec<Frame>>().into_iter()
-               .rev().collect();
-    
-    if r.len() == vm.op_stack.len() {
-        return Err(Error::StackUnderflow)
-    };
-
-    let len = vm.op_stack.len()-r.len()-1;
-    vm.op_stack.truncate(len);
-
-    let list = vm.save.intern_list(r);
-    Ok(vec![Passive::List(list).into()])
-}
-pub const MKLIST: VmOp = VmOp {
-    name: "mklist",
-    op: mklist,
-    n: 0,
-};
-
-fn flist(mut stack: Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
-    let Frame::Num(Num::Int(n)) = stack.pop().unwrap()
-    else {
-        return Error::OpType.into()
-    };
-
-    if n < 0 {
-        return Error::IllNeg.into()
-    };
-
-    let list = vm.save.intern_list(vec![Frame::Null; n as usize]);
-    Ok(vec![Passive::List(list).into()])
-}
-pub const LIST: VmOp = VmOp {
-    name: "list",
-    op: flist,
-    n: 1,
-};
-
-fn op_exec(mut stack: Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
-    let frame@Frame::Active(_) = stack.pop().unwrap() else {
-        return Error::OpType.into()
-    };
-    
-    vm.exec_stack.push(frame);
-    Ok(vec![])
-}
-pub const EXEC: VmOp = VmOp {
-    name: "exec",
-    op: op_exec,
-    n: 1,
-};
 
 type BinaryOpFunc = fn(Num, Num) -> Num;
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -613,6 +556,10 @@ impl fmt::Display for BinaryOp {
 }
 
 impl Op for BinaryOp {
+    fn from(&self) -> (&'static str, Frame) {
+        (self.name, Frame::from(*self))
+    }
+    
     fn exec(&self, vm: &mut Vm) -> Option<Error> {
         let stack = &mut vm.op_stack;
         let len = stack.len();
@@ -655,47 +602,58 @@ pub const DIV: BinaryOp = BinaryOp {
 
 type DictBase = HashMap<Name, Frame>;
 
-struct Dict {
+pub struct Dict {
     dict: DictBase,
 }
 
 impl Dict {
     pub fn new(t: &mut InternTable) -> Self {
-        Dict {
-            dict: HashMap::from([
-                (t.intern("neg".into()),    NEG.into()),
-                (t.intern("add".into()),    ADD.into()),
-                (t.intern("+".into()),      ADD.into()),
-                (t.intern("sub".into()),    SUB.into()),
-                (t.intern("-".into()),      SUB.into()),
-                (t.intern("mul".into()),    MUL.into()),
-                (t.intern("×".into()),      MUL.into()),
-                (t.intern("div".into()),    DIV.into()),
-                (t.intern("÷".into()),      DIV.into()),
-                (t.intern("NaN".into()),    Num::NaN.into()),
-                (t.intern("pop".into()),    POP.into()),
-                (t.intern("dup".into()),    DUP.into()),
-                (t.intern("exch".into()),   EXCH.into()),
-                (t.intern("==".into()),     SHOW.into()),
-                (t.intern("=".into()),      PEEK.into()),
-                (t.intern("quit".into()),   QUIT.into()),
-                (t.intern("clear".into()),  CLEAR.into()),
-                (t.intern("name".into()),   NAME.into()),
-                (t.intern("mkname".into()), MKNAME.into()),
-                (t.intern("mkstr".into()),  MKSTR.into()),
-                (t.intern("mkact".into()),  MKACT.into()),
-                (t.intern("mkpass".into()), MKPASS.into()),
-                (t.intern("exec".into()),   EXEC.into()),
-                (t.intern("mark".into()),   Passive::Mark.into()),
-                (t.intern("null".into()),   Frame::Null),
-                (t.intern("mklist".into()), MKLIST.into()),
-                (t.intern("list".into()),   LIST.into()),
-                (t.intern("get".into()),    GET.into()),
-                (t.intern("put".into()),    PUT.into()),
-                (t.intern("length".into()), LENGTH.into()),
-                (t.intern("getinterval".into()), GETINTERVAL.into()),
-            ])
-        }
+        let mut dict = HashMap::from_iter([
+            &NEG as &dyn Op,
+            &ADD,
+            &SUB,
+            &MUL,
+            &DIV,
+            &POP,
+            &DUP,
+            &EXCH,
+            &SHOW,
+            &PEEK,
+            &QUIT,
+            &CLEAR,
+            &vmops::NAME,
+            &vmops::MKNAME,
+            &vmops::EXEC,
+            &vmops::MKLIST,
+            &vmops::LIST,
+            &MKSTR,
+            &MKACT,
+            &MKPASS,
+            &GET,
+            &PUT,
+            &LENGTH,
+            &GETINTERVAL,
+            &vminfo::VMSTATUS,
+        ].into_iter()
+         .map(|op| op.mkpair(t))
+        );
+
+        dict.extend([
+            ("^",    NEG.into()),
+            ("+",    ADD.into()),
+            ("-",    SUB.into()),
+            ("×",    MUL.into()),
+            ("÷",    DIV.into()),
+            ("*",    Num::NaN.into()),
+            ("==",   SHOW.into()),
+            ("=",    PEEK.into()),
+            ("mark", Passive::Mark.into()),
+            ("null", Frame::Null),
+        ].into_iter()
+          .map(|(s, f)| (t.intern(s.into()), f))
+        );
+        
+        Dict {dict}
     }
 
     pub fn get(&self, string: String) -> Option<Frame> {
@@ -708,11 +666,12 @@ impl Dict {
 }
 
 pub struct Vm {
-    op_stack: Vec<Frame>,
-    exec_stack: Vec<Frame>,
-    save: Save,
-    dict: Dict,
-    intern_table: InternTable,
+    pub(crate) op_stack: Vec<Frame>,
+    pub(crate) exec_stack: Vec<Frame>,
+    pub(crate) save: Save,
+    pub(crate) dict: Dict,
+    pub(crate) intern_table: InternTable,
+    pub(crate) vminfo: Vminfo,
 }
 
 impl Vm {
@@ -724,6 +683,7 @@ impl Vm {
             save: Save::new(),
             dict: Dict::new(&mut intern_table),
             intern_table: intern_table,
+            vminfo: Vminfo::new(),
         }
     }
 
