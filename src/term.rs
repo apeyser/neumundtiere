@@ -4,7 +4,7 @@ pub mod string;
 
 use super::error::*;
 use super::reader::{self, Reader};
-use super::MainResult;
+use super::run::MainResult;
 
 pub fn exec_string(reader: &mut Reader, string: String) -> Option<Result<(), Error>>
 {
