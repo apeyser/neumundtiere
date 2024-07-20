@@ -24,6 +24,9 @@ pub mod stackops;
 use vm::Vm;
 use reader::Reader;
 
+#[cfg(test)]
+mod tests;
+
 type MainResult = Result<(), Box<dyn Error>>;
 
 #[derive(Parser, Debug)]
