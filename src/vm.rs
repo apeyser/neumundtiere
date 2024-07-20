@@ -1,12 +1,14 @@
 use std::fmt;
 use std::convert::From;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::borrow::Borrow;
 
 use super::term;
 use super::error::*;
 use super::reader::Reader;
-use super::save::Save;
+use super::save::SaveBox;
 use super::list::List;
+use super::dict::Dict;
 use super::optypes::*;
 use super::vminfo::{self, Vminfo};
 use super::optypes;
@@ -170,90 +172,78 @@ impl fmt::Display for Frame {
     }
 }
 
-type DictBase = HashMap<Name, Frame>;
+fn base_map(t: &mut InternTable) -> HashMap<Name, Frame> {
+    let mut dict = HashMap::from_iter([
+        &unaryops::NEG as &dyn optypes::Op,
+        &binaryops::ADD,
+        &binaryops::SUB,
+        &binaryops::MUL,
+        &binaryops::DIV,
+        &stackops::CLEAR,
+        &stackops::SHOW,
+        &stackops::PEEK,
+        &vmops::NAME,
+        &vmops::MKNAME,
+        &vmops::EXEC,
+        &vmops::MKLIST,
+        &vmops::LIST,
+        &naryops::POP,
+        &naryops::DUP,
+        &naryops::EXCH,
+        &naryops::GET,
+        &naryops::PUT,
+        &naryops::LENGTH,
+        &naryops::GETINTERVAL,
+        &naryops::QUIT,
+        &naryops::MKSTR,
+        &naryops::MKPASS,
+        &naryops::MKACT,
+        &vminfo::VMSTATUS,
+    ].into_iter()
+     .map(|op| op.mkpair(t))
+    );
 
-pub struct Dict {
-    dict: DictBase,
-}
-
-impl Dict {
-    pub fn new(t: &mut InternTable) -> Self {
-        let mut dict = HashMap::from_iter([
-            &unaryops::NEG as &dyn optypes::Op,
-            &binaryops::ADD,
-            &binaryops::SUB,
-            &binaryops::MUL,
-            &binaryops::DIV,
-            &stackops::CLEAR,
-            &stackops::SHOW,
-            &stackops::PEEK,
-            &vmops::NAME,
-            &vmops::MKNAME,
-            &vmops::EXEC,
-            &vmops::MKLIST,
-            &vmops::LIST,
-            &naryops::POP,
-            &naryops::DUP,
-            &naryops::EXCH,
-            &naryops::GET,
-            &naryops::PUT,
-            &naryops::LENGTH,
-            &naryops::GETINTERVAL,
-            &naryops::QUIT,
-            &naryops::MKSTR,
-            &naryops::MKPASS,
-            &naryops::MKACT,
-            &vminfo::VMSTATUS,
-        ].into_iter()
-         .map(|op| op.mkpair(t))
-        );
-
-        dict.extend([
-            ("^",    unaryops::NEG.into()),
-            ("+",    binaryops::ADD.into()),
-            ("-",    binaryops::SUB.into()),
-            ("×",    binaryops::MUL.into()),
-            ("÷",    binaryops::DIV.into()),
-            ("*",    Num::NaN.into()),
-            ("==",   stackops::SHOW.into()),
-            ("=",    stackops::PEEK.into()),
-            ("mark", Passive::Mark.into()),
-            ("null", Frame::Null),
-        ].into_iter()
-          .map(|(s, f)| (t.intern(s.into()), f))
-        );
+    dict.extend([
+        ("^",    unaryops::NEG.into()),
+        ("+",    binaryops::ADD.into()),
+        ("-",    binaryops::SUB.into()),
+        ("×",    binaryops::MUL.into()),
+        ("÷",    binaryops::DIV.into()),
+        ("*",    Num::NaN.into()),
+        ("==",   stackops::SHOW.into()),
+        ("=",    stackops::PEEK.into()),
+        ("mark", Passive::Mark.into()),
+        ("null", Frame::Null),
+    ].into_iter()
+     .map(|(s, f)| (t.intern(s.into()), f))
+    );
         
-        Dict {dict}
-    }
-
-    pub fn get(&self, string: String) -> Option<Frame> {
-        self.dict.get::<String>(&string).cloned()
-    }
-
-    pub fn insert(&mut self, name: Name, frame: Frame) {
-        self.dict.insert(name, frame);
-    }
+    dict
 }
 
 pub struct Vm {
     pub(crate) op_stack: Vec<Frame>,
     pub(crate) exec_stack: Vec<Frame>,
-    pub(crate) save: Save,
-    pub(crate) dict: Dict,
-    pub(crate) intern_table: InternTable,
+    pub(crate) save_stack: Vec<SaveBox>,
+    pub(crate) dict_stack: VecDeque<Dict>,
     pub(crate) vminfo: Vminfo,
+    pub(crate) intern_table: InternTable,
 }
 
 impl Vm {
     pub fn new() -> Self {
         let mut intern_table = InternTable::new();
+        let map = base_map(&mut intern_table);
+        let mut save = SaveBox::base();
+        let dict = save.put(map).unwrap();
+
         Vm {
             op_stack: Vec::new(),
             exec_stack: Vec::new(),
-            save: Save::new(),
-            dict: Dict::new(&mut intern_table),
-            intern_table: intern_table,
+            save_stack: vec![save],
+            dict_stack: vec![dict].into(),
             vminfo: Vminfo::new(),
+            intern_table,
         }
     }
 
@@ -268,6 +258,16 @@ impl Vm {
         }
     }
 
+    pub fn find(&mut self, name: Name) -> Result<Frame, Error> {
+        for d in &self.dict_stack {
+            if let Some(frame) = d.find(&name)? {
+                return Ok(frame)
+            }
+        }
+        let name: &String = name.borrow();
+        return Err(Error::MissingKey(name.clone()))
+    }
+
     pub fn exec(&mut self, mut frames: Vec<Frame>) -> Result<Option<Frame>, Error>
     {
         frames.reverse();
@@ -279,9 +279,7 @@ impl Vm {
             
             match frame {
                 Frame::Active(Active::Name(name)) => {
-                    let Some(f) = self.dict.get(name.to_string()) else {
-                        return Error::Unknown(name.to_string()).into()
-                    };
+                    let f = self.find(name)?;
                     self.exec_stack.push(f)
                 },
 

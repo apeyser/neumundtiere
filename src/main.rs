@@ -6,6 +6,7 @@ pub mod reader;
 pub mod error;
 pub mod list;
 pub mod save;
+pub mod dict;
 pub mod vminfo;
 pub mod optypes;
 pub mod vmops;

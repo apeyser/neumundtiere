@@ -11,7 +11,10 @@ fn name_op(stack: Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
         return Error::OpType.into()
     };
     
-    vm.dict.insert(name, frame);
+    let Some(dict) = vm.dict_stack.front_mut() else {
+        panic!("dict_stack empty")
+    };
+    dict.put(name, frame);
     Ok(vec![])
 }
 pub const NAME: VmOp = VmOp::new("name", name_op, 2);
@@ -41,7 +44,10 @@ fn mklist(_: Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
     let len = vm.op_stack.len()-r.len()-1;
     vm.op_stack.truncate(len);
 
-    let list = vm.save.intern_list(r);
+    let Some(csave) = vm.save_stack.last_mut() else {
+        panic!("save stack is empty")
+    };
+    let list = csave.put(r)?;
     Ok(vec![Passive::List(list).into()])
 }
 pub const MKLIST: VmOp = VmOp::new("mklist", mklist, 0);
@@ -56,7 +62,10 @@ fn flist(mut stack: Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
         return Error::IllNeg.into()
     };
 
-    let list = vm.save.intern_list(vec![Frame::Null; n as usize]);
+    let Some(csave) = vm.save_stack.last_mut() else {
+        panic!("save stack is empty")
+    };
+    let list = csave.put(vec![Frame::Null; n as usize])?;
     Ok(vec![Passive::List(list).into()])
 }
 pub const LIST: VmOp = VmOp::new("list", flist, 1);

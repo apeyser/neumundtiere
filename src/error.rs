@@ -15,6 +15,7 @@ pub enum Error {
     Range {len: usize, index: usize},
     Dropped,
     IllNeg,
+    MissingKey(String)
 }
 
 impl<T> Into<Result<T, Error>> for Error {
@@ -37,6 +38,7 @@ impl Display for Error {
             Error::Range{len, index}  => write!(f, "Illegal range: len({len}), index({index})"),
             Error::IllNeg             => write!(f, "Illegal negative in range"),
             Error::Dropped            => write!(f, "Illegal reference to dropped object"),
+            Error::MissingKey(s)      => write!(f, "Missing key {s} in Dict"),
         }
     }
 }

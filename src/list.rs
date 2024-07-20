@@ -1,15 +1,13 @@
 use std::rc::{Rc, Weak};
 use std::cell::RefCell;
 use std::fmt;
-use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
-use std::sync::Mutex;
 
-use once_cell::sync::Lazy;
+use itertools::Itertools;
 
 use super::error::Error;
 use super::vm::Frame;
-use super::save::{Saved, Unwrap};
+use super::save::{self, Saved, Unwrap, HasNew};
 
 #[derive(Debug, Clone)]
 pub struct List {
@@ -19,7 +17,7 @@ pub struct List {
 }
 
 impl PartialEq for List {
-    fn eq(&self, other: &List) -> bool {
+    fn eq(&self, other: &Self) -> bool {
         self.start == other.start && self.len == other.len && {
             match (self.parent.upgrade(), other.parent.upgrade()) {
                 (Some(ref parent), Some(ref other)) => Rc::ptr_eq(parent, other),
@@ -30,20 +28,19 @@ impl PartialEq for List {
     }
 }
 
-impl List {
-    pub fn new(parent: &Rc<RefCell<Saved>>) -> Self {
+impl HasNew for List {
+    fn new(parent: &Rc<RefCell<Saved>>) -> Self {
         let saved = &*parent.borrow();
-        let list = saved.unwrap();
-        List {parent: Rc::<_>::downgrade(parent), start: 0, len: list.len()}
+        let list: &Vec<_> = saved.unwrap();
+        Self {parent: Rc::<_>::downgrade(parent), start: 0, len: list.len()}
     }
 
-    fn get_parent(&self) -> Result<Rc<RefCell<Saved>>, Error> {
-        let Some(parent) = self.parent.upgrade() else {
-            return Error::Dropped.into()
-        };
-        Ok(parent)
+    fn weak_parent(&self) -> Weak<RefCell<Saved>> {
+        self.parent.clone()
     }
+}
 
+impl List {
     pub fn len(&self) -> Result<usize, Error> {
         let _ = self.get_parent()?;
         Ok(self.len)
@@ -56,7 +53,7 @@ impl List {
 
         let parent = self.get_parent()?;
         let saved = &*parent.borrow();
-        let list = saved.unwrap();
+        let list: &Vec<_> = saved.unwrap();
         Ok(list[self.start+index].clone())
     }
 
@@ -71,7 +68,7 @@ impl List {
         };
 
         let saved = &mut *parent.borrow_mut();
-        let list = saved.unwrap_mut();
+        let list: &mut Vec<_> = saved.unwrap_mut();
         list[self.start+index] = frame.clone();
         None
     }
@@ -91,7 +88,7 @@ impl List {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct ListFmt {
+pub struct ListFmt {
     parent: usize,
     start: usize,
     len: usize,
@@ -107,39 +104,30 @@ impl Hash for ListFmt {
     fn hash<H: Hasher>(&self, hasher: &mut H) {
         self.start.hash(hasher);
         self.len.hash(hasher);
-        hasher.write_usize(self.parent as usize);
+        hasher.write_usize(self.parent);
     }
 }
-
-static PENDING: Lazy<Mutex<HashSet<ListFmt>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 
 impl fmt::Display for List {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.parent.upgrade() {
             None => write!(f, "-- Dropped --"),
             Some(parent) => {
-                let listfmt = ListFmt::new(&parent, self.start, self.len);
-                if PENDING.lock().unwrap().contains(&listfmt) {
+                let listfmt = ListFmt::new(&parent, self.start, self.len).into();
+                if save::PENDING.lock().unwrap().contains(&listfmt) {
                     return write!(f, "...")
                 };
 
-                PENDING.lock().unwrap().insert(listfmt);
-                #[allow(irrefutable_let_patterns)]
+                save::PENDING.lock().unwrap().insert(listfmt);
                 let Saved::List(ref list) = *parent.borrow() else {
                     panic!("Impossible object as list");
                 };
-                
-                let r = match self.len {
-                    0   => write!(f, ""),
-                    1   => write!(f, "{}", list[self.start]),
-                    len => {
-                        for frame in &list[self.start..self.start+len-1] {
-                            write!(f, "{frame} ")?;
-                        };
-                        write!(f, "{}", &list[self.start+len-1])
-                    },
-                };
-                PENDING.lock().unwrap().remove(&listfmt);
+
+                let r = f.write_str(list.iter()
+                                        .map(|frame| format!("{frame}"))
+                                        .join(" ")
+                                        .as_str());
+                save::PENDING.lock().unwrap().remove(&listfmt);
                 r
             },
         }
