@@ -79,7 +79,7 @@ impl<'a> Reader<'a> {
                 Err(e) => Err(Error::IntParse(e, String::from(m.as_str()))),
             }
         } else if let Some(_) = captures.name("mark") {
-            Ok(MARK.into())
+            Ok(Passive::Mark.into())
         } else if let Some(_) = captures.name("mklist") {
             Ok(MKLIST.into())
         } else if let Some(m) = captures.name("pname") {

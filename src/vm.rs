@@ -2,10 +2,14 @@ use std::fmt;
 use std::convert::From;
 use std::collections::HashMap;
 
+use itertools::Itertools;
+
 use super::term;
 use super::error::*;
 use super::reader::Reader;
 use super::name::{Name, InternTable};
+use super::save::Save;
+use super::list::List;
 
 pub use super::num::Num;
 
@@ -14,7 +18,7 @@ pub enum Active {
     String(String),
     Name(Name),
     Mark,
-    List(Vec<Frame>),
+    List(List),
 }
 
 impl From<String> for Active {
@@ -29,8 +33,8 @@ impl From<Name> for Active {
     }
 }
 
-impl From<Vec<Frame>> for Active {
-    fn from(item: Vec<Frame>) -> Self {
+impl From<List> for Active {
+    fn from(item: List) -> Self {
         Active::List(item)
     }
 }
@@ -41,13 +45,7 @@ impl fmt::Display for Active {
             Active::String(string) => write!(f, "~({string})"),
             Active::Name(name) => write!(f, "~/({name})"),
             Active::Mark => write!(f, "{{"),
-            Active::List(frames) => {
-                write!(f, "{{ ")?;
-                for frame in frames {
-                    write!(f, "{frame} ")?
-                };
-                write!(f, "}}")
-            }
+            Active::List(list) => write!(f, "{{ {list} }}"),
         }
     }
 }
@@ -57,7 +55,7 @@ pub enum Passive {
     String(String),
     Name(Name),
     Mark,
-    List(Vec<Frame>),
+    List(List),
 }
 
 impl From<String> for Passive {
@@ -72,8 +70,8 @@ impl From<Name> for Passive {
     }
 }
 
-impl From<Vec<Frame>> for Passive {
-    fn from(item: Vec<Frame>) -> Self {
+impl From<List> for Passive {
+    fn from(item: List) -> Self {
         Passive::List(item)
     }
 }
@@ -84,13 +82,7 @@ impl fmt::Display for Passive {
             Passive::String(string) => write!(f, "({string})"),
             Passive::Name(name) => write!(f, "/({name})"),
             Passive::Mark => write!(f, "["),
-            Passive::List(frames) => {
-                write!(f, "[ ")?;
-                for frame in frames {
-                    write!(f, "{frame} ")?
-                };
-                write!(f, "]")
-            }
+            Passive::List(list) => write!(f, "[ {list} ]"),
         }
     }
 }
@@ -98,9 +90,11 @@ impl fmt::Display for Passive {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Frame {
     Num(Num),
+    Null,
     UnaryOp(UnaryOp),
     BinaryOp(BinaryOp),
     StackOp(StackOp),
+    NaryOp(NaryOp),
     VmOp(VmOp),
     Active(Active),
     Passive(Passive),
@@ -130,6 +124,12 @@ impl From<StackOp> for Frame {
     }
 }
 
+impl From<NaryOp> for Frame {
+    fn from(item: NaryOp) -> Self {
+        Frame::NaryOp(item)
+    }
+}
+
 impl From<VmOp> for Frame {
     fn from(item: VmOp) -> Self {
         Frame::VmOp(item)
@@ -151,11 +151,13 @@ impl From<Active> for Frame {
 impl fmt::Display for Frame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
-            Frame::Num(v)       => write!(f, "{v}"),
-            Frame::StackOp(op)  => write!(f, "{op}"),
-            Frame::VmOp(op)     => write!(f, "{op}"),
-            Frame::UnaryOp(op)  => write!(f, "{op}"),
-            Frame::BinaryOp(op) => write!(f, "{op}"),
+            Frame::Null           => write!(f, "null"),
+            Frame::Num(v)         => write!(f, "{v}"),
+            Frame::StackOp(op)    => write!(f, "{op}"),
+            Frame::VmOp(op)       => write!(f, "{op}"),
+            Frame::UnaryOp(op)    => write!(f, "{op}"),
+            Frame::BinaryOp(op)   => write!(f, "{op}"),
+            Frame::NaryOp(op)     => write!(f, "{op}"),
             Frame::Active(frame)  => write!(f, "{frame}"),
             Frame::Passive(frame) => write!(f, "{frame}"),
         }
@@ -197,7 +199,7 @@ pub const NEG: UnaryOp = UnaryOp {
     op: |a| -a,
 };
 
-type StackOpFunc = fn(&Vec<Frame>, &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>;
+type StackOpFunc = fn(&Vec<Frame>, Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>;
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct StackOp {
     name: &'static str,
@@ -216,7 +218,7 @@ impl Op for StackOp {
 
         let len = len-n;
         let substack = stack.split_off(len);
-        let (mut substack, n) = match (self.op)(stack, &substack) {
+        let (mut substack, n) = match (self.op)(stack, substack) {
             Ok((substack, n)) => (substack, n),
             Err(e) => return e.into(),
         };
@@ -235,17 +237,7 @@ impl fmt::Display for StackOp {
     }
 }
 
-fn fpop(_stack: &Vec<Frame>, _substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
-{
-    Ok((vec![], 0))
-}
-pub const POP: StackOp = StackOp {
-    name: "pop",
-    op: fpop,
-    n: 1,
-};
-
-fn fclear(stack: &Vec<Frame>, _substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
+fn fclear(stack: &Vec<Frame>, _: Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
     Ok((vec![], stack.len()))
 }
 pub const CLEAR: StackOp = StackOp {
@@ -254,29 +246,7 @@ pub const CLEAR: StackOp = StackOp {
     n: 0,
 };
 
-fn fdup(_stack: &Vec<Frame>, substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
-{
-    let last = &substack[0];
-    Ok((vec![last.clone(), last.clone()], 0))
-}
-pub const DUP: StackOp = StackOp {
-    name: "dup",
-    op: fdup,
-    n: 1,
-};
-
-fn fexch(_stack: &Vec<Frame>, substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
-{
-    let [ref f1, ref f2] = substack[..2] else {panic!("Impossible")};
-    Ok((vec![f2.clone(), f1.clone()], 0))
-}
-pub const EXCH: StackOp = StackOp {
-    name: "exch",
-    op: fexch,
-    n: 2,
-};
-
-fn fshow(stack: &Vec<Frame>, _substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
+fn fshow(stack: &Vec<Frame>, _: Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
     println!("Stack:");
     for v in stack.into_iter().rev() {
         println!("  {v}");
@@ -285,12 +255,12 @@ fn fshow(stack: &Vec<Frame>, _substack: &Vec<Frame>) -> Result<(Vec<Frame>, usiz
     Ok((vec![], 0))
 }
 pub const SHOW: StackOp = StackOp {
-    name: "==",
+    name: "show",
     op: fshow,
     n: 0,
 };
 
-fn fpeek(stack: &Vec<Frame>, _substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
+fn fpeek(stack: &Vec<Frame>, _: Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
 {
     match stack.last() {
         None => println!("Stack: empty"),
@@ -299,53 +269,215 @@ fn fpeek(stack: &Vec<Frame>, _substack: &Vec<Frame>) -> Result<(Vec<Frame>, usiz
     Ok((vec![], 0))
 }
 pub const PEEK: StackOp = StackOp {
-    name: "=",
+    name: "peek",
     op: fpeek,
     n: 0,
 };
 
-fn fmark(_stack: &Vec<Frame>, _substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
-{
-    Ok((vec![Passive::Mark.into()], 0))
+type NaryOpFunc = fn(stack: Vec<Frame>) -> Result<Vec<Frame>, Error>;
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct NaryOp {
+    name: &'static str,
+    op: NaryOpFunc,
+    n: usize,
 }
-pub const MARK: StackOp = StackOp {
-    name: "mark",
-    op: fmark,
-    n: 0,
-};
 
-fn fmklist(stack: &Vec<Frame>, _substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
-{
-    let mark = Frame::Passive(Passive::Mark);
-    let r: Vec<Frame>
-        = stack.into_iter().cloned().rev()
-               .take_while(|frame| *frame != mark)
-               .collect::<Vec<Frame>>().into_iter()
-               .rev().collect();
-    
-    if r.len() == stack.len() {
-        Err(Error::StackUnderflow)
-    } else {
-        Ok((vec![Frame::Passive(r.clone().into())], r.len()+1))
+impl Op for NaryOp {
+    fn exec(&self, vm: &mut Vm) -> Option<Error> {
+        let stack = &mut vm.op_stack;
+        let n = self.n;
+        let len = stack.len();
+        if len < n {
+            return Error::StackUnderflow.into()
+        }
+
+        let len = len-n;
+        let substack = stack.split_off(len);
+        let mut frames = match (self.op)(substack) {
+            Ok(frames) => frames,
+            Err(e) => return e.into(),
+        };
+        stack.append(&mut frames);
+        None
     }
 }
-pub const MKLIST: StackOp = StackOp {
-    name: "mklist",
-    op: fmklist,
-    n: 0,
+
+impl fmt::Display for NaryOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+fn fpop(_: Vec<Frame>) -> Result<Vec<Frame>, Error>
+{
+    Ok(vec![])
+}
+pub const POP: NaryOp = NaryOp {
+    name: "pop",
+    op: fpop,
+    n: 1,
 };
 
-fn fquit(_stack: &Vec<Frame>, _substack: &Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
-{
-    Err(Error::Quit)
+fn fdup(substack: Vec<Frame>) -> Result<Vec<Frame>, Error> {
+    let (last,) = substack.into_iter().collect_tuple().unwrap();
+    let copy = last.clone();
+    Ok(vec![last, copy])
 }
-pub const QUIT: StackOp = StackOp {
+pub const DUP: NaryOp = NaryOp {
+    name: "dup",
+    op: fdup,
+    n: 1,
+};
+
+fn fexch(substack: Vec<Frame>) -> Result<Vec<Frame>, Error>
+{
+    let (f1, f2) = substack.into_iter().collect_tuple().unwrap();
+    Ok(vec![f2, f1])
+}
+pub const EXCH: NaryOp = NaryOp {
+    name: "exch",
+    op: fexch,
+    n: 2,
+};
+
+fn fget(substack: Vec<Frame>) -> Result<Vec<Frame>, Error> {
+    let (Frame::Passive(Passive::List(ref list)), Frame::Num(Num::Int(i)))
+        = substack.into_iter().collect_tuple().unwrap()
+    else {
+        return Error::OpType.into()
+    };
+
+    if i < 0 {
+        return Error::IllNeg.into()
+    };
+    
+    Ok(vec![list.get(i as usize)?])
+}
+pub const GET: NaryOp = NaryOp {
+    name: "get",
+    op: fget,
+    n: 2,
+};
+
+fn fput(substack: Vec<Frame>) -> Result<Vec<Frame>, Error> {
+    let (f1,
+         Frame::Passive(Passive::List(ref mut list)),
+         Frame::Num(Num::Int(i)))
+        = substack.into_iter().collect_tuple().unwrap()
+    else {
+        return Error::OpType.into()
+    };
+
+    if i < 0 {
+        return Error::IllNeg.into()
+    };
+
+    if let Some(err) = list.put(i as usize, f1) {
+        return err.into()
+    };
+
+    Ok(vec![])
+}
+pub const PUT: NaryOp = NaryOp {
+    name: "put",
+    op: fput,
+    n: 3,
+};
+
+fn flength(mut substack: Vec<Frame>) -> Result<Vec<Frame>, Error> {
+    let Frame::Passive(Passive::List(ref mut list)) = substack.pop().unwrap() else {
+        return Error::OpType.into()
+    };
+
+    Ok(vec![Num::Int(list.len()? as i64).into()])
+}
+pub const LENGTH: NaryOp = NaryOp {
+    name: "length",
+    op: flength,
+    n: 1,
+};
+
+fn fgetinterval(substack: Vec<Frame>) -> Result<Vec<Frame>, Error> {
+    let (Frame::Passive(Passive::List(ref list)),
+         Frame::Num(Num::Int(start)),
+         Frame::Num(Num::Int(len)))
+        = substack.into_iter().collect_tuple().unwrap()
+    else {
+        return Error::OpType.into()
+    };
+
+    if start < 0 || len < 0 {
+        return Error::IllNeg.into();
+    };
+
+    Ok(vec![Passive::List(list.range(start as usize, len as usize)?).into()])
+}
+pub const GETINTERVAL: NaryOp = NaryOp {
+    name: "getinterval",
+    op: fgetinterval,
+    n: 3,
+};
+
+fn fquit(_: Vec<Frame>) -> Result<Vec<Frame>, Error> {
+    Error::Quit.into()
+}
+pub const QUIT: NaryOp = NaryOp {
     name: "quit",
     op: fquit,
     n: 0,
 };
 
-type VmOpFunc = fn(_stack: &Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error>;
+
+fn mkstr(mut stack: Vec<Frame>) -> Result<Vec<Frame>, Error> {
+    let Frame::Passive(Passive::Name(name)) = stack.pop().unwrap() else {
+        return Error::OpType.into()
+    };
+    
+    Ok(vec![Frame::Passive(name.into())])
+}
+pub const MKSTR: NaryOp = NaryOp {
+    name: "mkname",
+    op: mkstr,
+    n: 1,
+};
+
+fn mkpass(mut stack: Vec<Frame>) -> Result<Vec<Frame>, Error> {
+    let Frame::Active(active) = stack.pop().unwrap() else {
+        return Error::OpType.into()
+    };
+    let passive = match active {
+        Active::Name(name)     => Passive::Name(name),
+        Active::String(string) => Passive::String(string),
+        Active::Mark           => Passive::Mark,
+        Active::List(list)     => Passive::List(list),
+    };
+    Ok(vec![passive.into()])
+}
+pub const MKPASS: NaryOp = NaryOp {
+    name: "mkpass",
+    op: mkpass,
+    n: 1,
+};
+
+fn mkact(mut stack: Vec<Frame>) -> Result<Vec<Frame>, Error> {
+    let Frame::Passive(passive) = stack.pop().unwrap() else {
+        return Error::OpType.into()
+    };
+    let active = match passive {
+        Passive::Name(name)     => Active::Name(name),
+        Passive::String(string) => Active::String(string),
+        Passive::Mark           => Active::Mark,
+        Passive::List(list)     => Active::List(list),
+    };
+    Ok(vec![active.into()])
+}
+pub const MKACT: NaryOp = NaryOp {
+    name: "mkact",
+    op: mkact,
+    n: 1,
+};
+
+type VmOpFunc = fn(stack: Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error>;
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct VmOp {
     name: &'static str,
@@ -356,14 +488,15 @@ pub struct VmOp {
 impl Op for VmOp {
     fn exec(&self, vm: &mut Vm) -> Option<Error> {
         let n = self.n;
-        let len = vm.op_stack.len();
+        let stack = &mut vm.op_stack;
+        let len = stack.len();
         if len < n {
             return Error::StackUnderflow.into()
         }
 
         let len = len-n;
-        let substack = vm.op_stack.split_off(len);
-        match (self.op)(&substack, vm) {
+        let substack = stack.split_off(len);
+        match (self.op)(substack, vm) {
             Ok(mut substack) => {
                 vm.op_stack.append(&mut substack);
                 None
@@ -379,98 +512,92 @@ impl fmt::Display for VmOp {
     }
 }
 
-fn name_op(stack: &Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
-    match (stack[0].clone(), stack[1].clone()) {
-        (frame, Frame::Passive(Passive::Name(name))) => {
-            vm.dict.insert(name, frame);
-            Ok(vec![])
-        },
-        _ => Err(Error::OpType),
-    }           
+fn name_op(stack: Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
+    let (frame, Frame::Passive(Passive::Name(name)))
+        = stack.into_iter().collect_tuple().unwrap()
+    else {
+        return Error::OpType.into()
+    };
+    
+    vm.dict.insert(name, frame);
+    Ok(vec![])
 }
 pub const NAME: VmOp = VmOp {
     name: "name",
-    op: |stack, vm| name_op(stack, vm),
+    op: name_op,
     n: 2,
 };
 
-fn mkname(stack: &Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
-    match stack[0].clone() {
-        Frame::Passive(Passive::String(string))
-            => Ok(vec![Passive::Name(vm.intern_table.intern(string)).into()]),
-        _ => Err(Error::OpType),
-    }       
+fn mkname(mut stack: Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
+    let Frame::Passive(Passive::String(string)) = stack.pop().unwrap() else {
+        return Error::OpType.into()
+    };
+
+    let name = vm.intern_table.intern(string);
+    Ok(vec![Passive::Name(name).into()])
 }
 pub const MKNAME: VmOp = VmOp {
     name: "mkname",
-    op: |stack, vm| mkname(stack, vm),
+    op: mkname,
     n: 1,
 };
 
-fn mkstr(stack: &Vec<Frame>, _vm: &mut Vm) -> Result<Vec<Frame>, Error> {
-    match stack[0].clone() {
-        Frame::Passive(Passive::Name(name))
-            => Ok(vec![Frame::Passive(name.into())]),
-        _ => Err(Error::OpType),
-    }
-}
-pub const MKSTR: VmOp = VmOp {
-    name: "mkname",
-    op: |stack, vm| mkstr(stack, vm),
-    n: 1,
-};
-
-fn mkpass(stack: &Vec<Frame>, _vm: &mut Vm) -> Result<Vec<Frame>, Error> {
-    let passive = match stack[0].clone() {
-        Frame::Active(active) => match active {
-            Active::Name(name) => Passive::Name(name),
-            Active::String(string) => Passive::String(string),
-            Active::Mark => Passive::Mark,
-            Active::List(list) => Passive::List(list),
-        }
-        _ => return Err(Error::OpType),
+fn mklist(_: Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
+    let mark = Frame::Passive(Passive::Mark);
+    let r: Vec<Frame>
+        = vm.op_stack.iter().cloned().rev()
+               .take_while(|frame| *frame != mark)
+               .collect::<Vec<Frame>>().into_iter()
+               .rev().collect();
+    
+    if r.len() == vm.op_stack.len() {
+        return Err(Error::StackUnderflow)
     };
-    Ok(vec![Frame::Passive(passive)])
+
+    let len = vm.op_stack.len()-r.len()-1;
+    vm.op_stack.truncate(len);
+
+    let list = vm.save.intern_list(r);
+    Ok(vec![Passive::List(list).into()])
 }
-pub const MKPASS: VmOp = VmOp {
-    name: "mkpass",
-    op: |stack, vm| mkpass(stack, vm),
-    n: 1,
+pub const MKLIST: VmOp = VmOp {
+    name: "mklist",
+    op: mklist,
+    n: 0,
 };
 
-fn mkact(stack: &Vec<Frame>, _vm: &mut Vm) -> Result<Vec<Frame>, Error> {
-    let active = match stack[0].clone() {
-        Frame::Passive(passive) => match passive {
-            Passive::Name(name) => Active::Name(name),
-            Passive::String(string) => Active::String(string),
-            Passive::Mark => Active::Mark,
-            Passive::List(list) => Active::List(list),
-        }
-        _ => return Err(Error::OpType),
+fn flist(mut stack: Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
+    let Frame::Num(Num::Int(n)) = stack.pop().unwrap()
+    else {
+        return Error::OpType.into()
     };
-    Ok(vec![Frame::Active(active)])
+
+    if n < 0 {
+        return Error::IllNeg.into()
+    };
+
+    let list = vm.save.intern_list(vec![Frame::Null; n as usize]);
+    Ok(vec![Passive::List(list).into()])
 }
-pub const MKACT: VmOp = VmOp {
-    name: "mkact",
-    op: |stack, vm| mkact(stack, vm),
+pub const LIST: VmOp = VmOp {
+    name: "list",
+    op: flist,
     n: 1,
 };
 
-fn op_exec(stack: &Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
-    match stack[0].clone() {
-        frame@Frame::Active(_) => {
-            vm.exec_stack.push(frame);
-            Ok(vec![])
-        },
-        _ => Err(Error::OpType),
-    }
+fn op_exec(mut stack: Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
+    let frame@Frame::Active(_) = stack.pop().unwrap() else {
+        return Error::OpType.into()
+    };
+    
+    vm.exec_stack.push(frame);
+    Ok(vec![])
 }
 pub const EXEC: VmOp = VmOp {
     name: "exec",
-    op: |stack, vm| op_exec(stack, vm),
+    op: op_exec,
     n: 1,
 };
-
 
 type BinaryOpFunc = fn(Num, Num) -> Num;
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -487,21 +614,21 @@ impl fmt::Display for BinaryOp {
 
 impl Op for BinaryOp {
     fn exec(&self, vm: &mut Vm) -> Option<Error> {
-        let len = vm.op_stack.len();
+        let stack = &mut vm.op_stack;
+        let len = stack.len();
         if len < 2 {
             return Error::StackUnderflow.into()
         };
-                    
-        let [ref f1, ref f2] = vm.op_stack[len-2..] else {
-            panic!("Impossible");
-        };
 
-        let (&Frame::Num(i1), &Frame::Num(i2)) = (f1, f2) else {
+        let substack = stack.split_off(len-2); 
+        let (Frame::Num(i1), Frame::Num(i2))
+            = substack.into_iter().collect_tuple().unwrap()
+        else {
             return Error::OpType.into()
         };
+
         let r = (self.op)(i1, i2);
-        vm.op_stack[len-2] = r.into();
-        vm.op_stack.truncate(len-1);
+        stack.push(r.into());
         None
     }
 }
@@ -559,8 +686,14 @@ impl Dict {
                 (t.intern("mkact".into()),  MKACT.into()),
                 (t.intern("mkpass".into()), MKPASS.into()),
                 (t.intern("exec".into()),   EXEC.into()),
-                (t.intern("mark".into()),   MARK.into()),
+                (t.intern("mark".into()),   Passive::Mark.into()),
+                (t.intern("null".into()),   Frame::Null),
                 (t.intern("mklist".into()), MKLIST.into()),
+                (t.intern("list".into()),   LIST.into()),
+                (t.intern("get".into()),    GET.into()),
+                (t.intern("put".into()),    PUT.into()),
+                (t.intern("length".into()), LENGTH.into()),
+                (t.intern("getinterval".into()), GETINTERVAL.into()),
             ])
         }
     }
@@ -577,6 +710,7 @@ impl Dict {
 pub struct Vm {
     op_stack: Vec<Frame>,
     exec_stack: Vec<Frame>,
+    save: Save,
     dict: Dict,
     intern_table: InternTable,
 }
@@ -587,6 +721,7 @@ impl Vm {
         Vm {
             op_stack: Vec::new(),
             exec_stack: Vec::new(),
+            save: Save::new(),
             dict: Dict::new(&mut intern_table),
             intern_table: intern_table,
         }
@@ -623,8 +758,8 @@ impl Vm {
                 Frame::Active(Active::String(string)) => {
                     let reader = &mut Reader::new(self);
                     match term::exec_string(reader, string) {
-                        None => return Err(Error::Quit),
-                        Some(Err(err)) => return Err(err),
+                        None => return Error::Quit.into(),
+                        Some(Err(err)) => return err.into(),
                         Some(Ok(())) => (),
                     }
                 },
@@ -633,6 +768,7 @@ impl Vm {
                 Frame::BinaryOp(op) => self.exec_op(op)?,
                 Frame::StackOp(op)  => self.exec_op(op)?,
                 Frame::VmOp(op)     => self.exec_op(op)?,
+                Frame::NaryOp(op)   => self.exec_op(op)?,
 
                 other => self.op_stack.push(other),
             }

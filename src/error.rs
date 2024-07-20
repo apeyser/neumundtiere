@@ -12,6 +12,9 @@ pub enum Error {
     StackUnderflow,
     OpType,
     Unknown(String),
+    Range {len: usize, index: usize},
+    Dropped,
+    IllNeg,
 }
 
 impl<T> Into<Result<T, Error>> for Error {
@@ -31,6 +34,9 @@ impl Display for Error {
             Error::FloatParse(err, s) => write!(f, "Float parsing error: {err} ({s})"),
             Error::IllegalSym(string) => write!(f, "Illegal symbol: {string}"),
             Error::Illformed(string)  => write!(f, "Illformed string: {string}"),
+            Error::Range{len, index}  => write!(f, "Illegal range: len({len}), index({index})"),
+            Error::IllNeg             => write!(f, "Illegal negative in range"),
+            Error::Dropped            => write!(f, "Illegal reference to dropped object"),
         }
     }
 }
