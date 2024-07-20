@@ -14,7 +14,12 @@ pub mod error;
 pub mod list;
 pub mod save;
 pub mod vminfo;
+pub mod optypes;
 pub mod vmops;
+pub mod unaryops;
+pub mod naryops;
+pub mod binaryops;
+pub mod stackops;
 
 use vm::Vm;
 use reader::Reader;

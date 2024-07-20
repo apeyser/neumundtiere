@@ -2,6 +2,7 @@ use itertools::Itertools;
 
 use super::vm::*;
 use super::error::Error;
+use super::optypes::VmOp;
 
 fn name_op(stack: Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
     let (frame, Frame::Passive(Passive::Name(name)))

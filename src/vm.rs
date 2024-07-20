@@ -2,17 +2,21 @@ use std::fmt;
 use std::convert::From;
 use std::collections::HashMap;
 
-use itertools::Itertools;
-
 use super::term;
 use super::error::*;
 use super::reader::Reader;
-use super::name::{Name, InternTable};
 use super::save::Save;
 use super::list::List;
+use super::optypes::*;
 use super::vminfo::{self, Vminfo};
+use super::optypes;
 use super::vmops;
+use super::unaryops;
+use super::binaryops;
+use super::naryops;
+use super::stackops;
 
+pub use super::name::{Name, InternTable};
 pub use super::num::Num;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -166,440 +170,6 @@ impl fmt::Display for Frame {
     }
 }
 
-trait Op {
-    fn exec(&self, vm: &mut Vm) -> Option<Error>;
-    fn mkpair(&self, table: &mut InternTable) -> (Name, Frame) {
-        let (s, f) = self.from();
-        (table.intern(s.into()), f)
-    }
-    fn from(&self) -> (&'static str, Frame);
-}
-
-type UnaryOpFunc = fn(Num) -> Num;
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct UnaryOp {
-    name: &'static str,
-    op: UnaryOpFunc,
-}
-
-impl Op for UnaryOp {
-    fn from(&self) -> (&'static str, Frame) {
-        (self.name, Frame::from(*self))
-    }
-    
-    fn exec(&self, vm: &mut Vm) -> Option<Error> {
-        let i = match vm.op_stack.pop() {
-            None => return Error::StackUnderflow.into(),
-            Some(Frame::Num(num)) => num,
-            Some(_) => return Error::OpType.into(),
-        };
-        let r = (self.op)(i);
-        vm.op_stack.push(r.into());
-        None
-    }
-}
-
-impl fmt::Display for UnaryOp {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-
-pub const NEG: UnaryOp = UnaryOp {
-    name: "neg",
-    op: |a| -a,
-};
-
-type StackOpFunc = fn(&Vec<Frame>, Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>;
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct StackOp {
-    name: &'static str,
-    op: StackOpFunc,
-    n: usize,
-}
-
-impl Op for StackOp {
-    fn from(&self) -> (&'static str, Frame) {
-        (self.name, Frame::from(*self))
-    }
-    
-    fn exec(&self, vm: &mut Vm) -> Option<Error> {
-        let stack = &mut vm.op_stack;
-        let n = self.n;
-        let len = stack.len();
-        if len < n {
-            return Error::StackUnderflow.into()
-        }
-
-        let len = len-n;
-        let substack = stack.split_off(len);
-        let (mut substack, n) = match (self.op)(stack, substack) {
-            Ok((substack, n)) => (substack, n),
-            Err(e) => return e.into(),
-        };
-        if len < n {
-            return Error::StackUnderflow.into()
-        };
-        stack.truncate(len-n);
-        stack.append(&mut substack);
-        None
-    }
-}
-
-impl fmt::Display for StackOp {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-
-fn fclear(stack: &Vec<Frame>, _: Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
-    Ok((vec![], stack.len()))
-}
-pub const CLEAR: StackOp = StackOp {
-    name: "clear",
-    op: fclear,
-    n: 0,
-};
-
-fn fshow(stack: &Vec<Frame>, _: Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {
-    println!("Stack:");
-    for v in stack.into_iter().rev() {
-        println!("  {v}");
-    };
-    println!("-----");
-    Ok((vec![], 0))
-}
-pub const SHOW: StackOp = StackOp {
-    name: "show",
-    op: fshow,
-    n: 0,
-};
-
-fn fpeek(stack: &Vec<Frame>, _: Vec<Frame>) -> Result<(Vec<Frame>, usize), Error>
-{
-    match stack.last() {
-        None => println!("Stack: empty"),
-        Some(frame) => println!("Top: {frame}"),
-    };
-    Ok((vec![], 0))
-}
-pub const PEEK: StackOp = StackOp {
-    name: "peek",
-    op: fpeek,
-    n: 0,
-};
-
-type NaryOpFunc = fn(stack: Vec<Frame>) -> Result<Vec<Frame>, Error>;
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct NaryOp {
-    name: &'static str,
-    op: NaryOpFunc,
-    n: usize,
-}
-
-impl Op for NaryOp {
-    fn from(&self) -> (&'static str, Frame) {
-        (self.name, Frame::from(*self))
-    }
-    
-    fn exec(&self, vm: &mut Vm) -> Option<Error> {
-        let stack = &mut vm.op_stack;
-        let n = self.n;
-        let len = stack.len();
-        if len < n {
-            return Error::StackUnderflow.into()
-        }
-
-        let len = len-n;
-        let substack = stack.split_off(len);
-        let mut frames = match (self.op)(substack) {
-            Ok(frames) => frames,
-            Err(e) => return e.into(),
-        };
-        stack.append(&mut frames);
-        None
-    }
-}
-
-impl fmt::Display for NaryOp {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-
-fn fpop(_: Vec<Frame>) -> Result<Vec<Frame>, Error>
-{
-    Ok(vec![])
-}
-pub const POP: NaryOp = NaryOp {
-    name: "pop",
-    op: fpop,
-    n: 1,
-};
-
-fn fdup(substack: Vec<Frame>) -> Result<Vec<Frame>, Error> {
-    let (last,) = substack.into_iter().collect_tuple().unwrap();
-    let copy = last.clone();
-    Ok(vec![last, copy])
-}
-pub const DUP: NaryOp = NaryOp {
-    name: "dup",
-    op: fdup,
-    n: 1,
-};
-
-fn fexch(substack: Vec<Frame>) -> Result<Vec<Frame>, Error>
-{
-    let (f1, f2) = substack.into_iter().collect_tuple().unwrap();
-    Ok(vec![f2, f1])
-}
-pub const EXCH: NaryOp = NaryOp {
-    name: "exch",
-    op: fexch,
-    n: 2,
-};
-
-fn fget(substack: Vec<Frame>) -> Result<Vec<Frame>, Error> {
-    let (Frame::Passive(Passive::List(ref list)), Frame::Num(Num::Int(i)))
-        = substack.into_iter().collect_tuple().unwrap()
-    else {
-        return Error::OpType.into()
-    };
-
-    if i < 0 {
-        return Error::IllNeg.into()
-    };
-    
-    Ok(vec![list.get(i as usize)?])
-}
-pub const GET: NaryOp = NaryOp {
-    name: "get",
-    op: fget,
-    n: 2,
-};
-
-fn fput(substack: Vec<Frame>) -> Result<Vec<Frame>, Error> {
-    let (f1,
-         Frame::Passive(Passive::List(ref mut list)),
-         Frame::Num(Num::Int(i)))
-        = substack.into_iter().collect_tuple().unwrap()
-    else {
-        return Error::OpType.into()
-    };
-
-    if i < 0 {
-        return Error::IllNeg.into()
-    };
-
-    if let Some(err) = list.put(i as usize, f1) {
-        return err.into()
-    };
-
-    Ok(vec![])
-}
-pub const PUT: NaryOp = NaryOp {
-    name: "put",
-    op: fput,
-    n: 3,
-};
-
-fn flength(mut substack: Vec<Frame>) -> Result<Vec<Frame>, Error> {
-    let Frame::Passive(Passive::List(ref mut list)) = substack.pop().unwrap() else {
-        return Error::OpType.into()
-    };
-
-    Ok(vec![Num::Int(list.len()? as i64).into()])
-}
-pub const LENGTH: NaryOp = NaryOp {
-    name: "length",
-    op: flength,
-    n: 1,
-};
-
-fn fgetinterval(substack: Vec<Frame>) -> Result<Vec<Frame>, Error> {
-    let (Frame::Passive(Passive::List(ref list)),
-         Frame::Num(Num::Int(start)),
-         Frame::Num(Num::Int(len)))
-        = substack.into_iter().collect_tuple().unwrap()
-    else {
-        return Error::OpType.into()
-    };
-
-    if start < 0 || len < 0 {
-        return Error::IllNeg.into();
-    };
-
-    Ok(vec![Passive::List(list.range(start as usize, len as usize)?).into()])
-}
-pub const GETINTERVAL: NaryOp = NaryOp {
-    name: "getinterval",
-    op: fgetinterval,
-    n: 3,
-};
-
-fn fquit(_: Vec<Frame>) -> Result<Vec<Frame>, Error> {
-    Error::Quit.into()
-}
-pub const QUIT: NaryOp = NaryOp {
-    name: "quit",
-    op: fquit,
-    n: 0,
-};
-
-
-fn mkstr(mut stack: Vec<Frame>) -> Result<Vec<Frame>, Error> {
-    let Frame::Passive(Passive::Name(name)) = stack.pop().unwrap() else {
-        return Error::OpType.into()
-    };
-    
-    Ok(vec![Frame::Passive(name.into())])
-}
-pub const MKSTR: NaryOp = NaryOp {
-    name: "mkname",
-    op: mkstr,
-    n: 1,
-};
-
-fn mkpass(mut stack: Vec<Frame>) -> Result<Vec<Frame>, Error> {
-    let Frame::Active(active) = stack.pop().unwrap() else {
-        return Error::OpType.into()
-    };
-    let passive = match active {
-        Active::Name(name)     => Passive::Name(name),
-        Active::String(string) => Passive::String(string),
-        Active::Mark           => Passive::Mark,
-        Active::List(list)     => Passive::List(list),
-    };
-    Ok(vec![passive.into()])
-}
-pub const MKPASS: NaryOp = NaryOp {
-    name: "mkpass",
-    op: mkpass,
-    n: 1,
-};
-
-fn mkact(mut stack: Vec<Frame>) -> Result<Vec<Frame>, Error> {
-    let Frame::Passive(passive) = stack.pop().unwrap() else {
-        return Error::OpType.into()
-    };
-    let active = match passive {
-        Passive::Name(name)     => Active::Name(name),
-        Passive::String(string) => Active::String(string),
-        Passive::Mark           => Active::Mark,
-        Passive::List(list)     => Active::List(list),
-    };
-    Ok(vec![active.into()])
-}
-pub const MKACT: NaryOp = NaryOp {
-    name: "mkact",
-    op: mkact,
-    n: 1,
-};
-
-type VmOpFunc = fn(stack: Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error>;
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct VmOp {
-    name: &'static str,
-    op: VmOpFunc,
-    n: usize,
-}
-
-impl VmOp {
-    pub const fn new(name: &'static str, op: VmOpFunc, n: usize) -> Self {
-        Self {name, op, n}
-    }
-}
-
-impl fmt::Display for VmOp {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-
-impl Op for VmOp {
-    fn from(&self) -> (&'static str, Frame) {
-        (self.name, Frame::from(*self))
-    }
-    
-    fn exec(&self, vm: &mut Vm) -> Option<Error> {
-        let n = self.n;
-        let stack = &mut vm.op_stack;
-        let len = stack.len();
-        if len < n {
-            return Error::StackUnderflow.into()
-        }
-
-        let len = len-n;
-        let substack = stack.split_off(len);
-        match (self.op)(substack, vm) {
-            Ok(mut substack) => {
-                vm.op_stack.append(&mut substack);
-                None
-            },
-            Err(error) => return Some(error),
-        }
-    }
-}
-
-
-type BinaryOpFunc = fn(Num, Num) -> Num;
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct BinaryOp {
-    name: &'static str,
-    op: BinaryOpFunc,
-}
-
-impl fmt::Display for BinaryOp {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)
-    }
-}
-
-impl Op for BinaryOp {
-    fn from(&self) -> (&'static str, Frame) {
-        (self.name, Frame::from(*self))
-    }
-    
-    fn exec(&self, vm: &mut Vm) -> Option<Error> {
-        let stack = &mut vm.op_stack;
-        let len = stack.len();
-        if len < 2 {
-            return Error::StackUnderflow.into()
-        };
-
-        let substack = stack.split_off(len-2); 
-        let (Frame::Num(i1), Frame::Num(i2))
-            = substack.into_iter().collect_tuple().unwrap()
-        else {
-            return Error::OpType.into()
-        };
-
-        let r = (self.op)(i1, i2);
-        stack.push(r.into());
-        None
-    }
-}
-
-pub const ADD: BinaryOp = BinaryOp {
-    name: "add",
-    op: |a, b| a+b,
-};
-
-pub const SUB: BinaryOp = BinaryOp {
-    name: "sub",
-    op: |a, b| a-b,
-};
-
-pub const MUL: BinaryOp = BinaryOp {
-    name: "mul",
-    op: |a, b| a*b,
-};
-
-pub const DIV: BinaryOp = BinaryOp {
-    name: "div",
-    op: |a, b| a/b,
-};
-
 type DictBase = HashMap<Name, Frame>;
 
 pub struct Dict {
@@ -609,44 +179,44 @@ pub struct Dict {
 impl Dict {
     pub fn new(t: &mut InternTable) -> Self {
         let mut dict = HashMap::from_iter([
-            &NEG as &dyn Op,
-            &ADD,
-            &SUB,
-            &MUL,
-            &DIV,
-            &POP,
-            &DUP,
-            &EXCH,
-            &SHOW,
-            &PEEK,
-            &QUIT,
-            &CLEAR,
+            &unaryops::NEG as &dyn optypes::Op,
+            &binaryops::ADD,
+            &binaryops::SUB,
+            &binaryops::MUL,
+            &binaryops::DIV,
+            &stackops::CLEAR,
+            &stackops::SHOW,
+            &stackops::PEEK,
             &vmops::NAME,
             &vmops::MKNAME,
             &vmops::EXEC,
             &vmops::MKLIST,
             &vmops::LIST,
-            &MKSTR,
-            &MKACT,
-            &MKPASS,
-            &GET,
-            &PUT,
-            &LENGTH,
-            &GETINTERVAL,
+            &naryops::POP,
+            &naryops::DUP,
+            &naryops::EXCH,
+            &naryops::GET,
+            &naryops::PUT,
+            &naryops::LENGTH,
+            &naryops::GETINTERVAL,
+            &naryops::QUIT,
+            &naryops::MKSTR,
+            &naryops::MKPASS,
+            &naryops::MKACT,
             &vminfo::VMSTATUS,
         ].into_iter()
          .map(|op| op.mkpair(t))
         );
 
         dict.extend([
-            ("^",    NEG.into()),
-            ("+",    ADD.into()),
-            ("-",    SUB.into()),
-            ("×",    MUL.into()),
-            ("÷",    DIV.into()),
+            ("^",    unaryops::NEG.into()),
+            ("+",    binaryops::ADD.into()),
+            ("-",    binaryops::SUB.into()),
+            ("×",    binaryops::MUL.into()),
+            ("÷",    binaryops::DIV.into()),
             ("*",    Num::NaN.into()),
-            ("==",   SHOW.into()),
-            ("=",    PEEK.into()),
+            ("==",   stackops::SHOW.into()),
+            ("=",    stackops::PEEK.into()),
             ("mark", Passive::Mark.into()),
             ("null", Frame::Null),
         ].into_iter()
@@ -691,7 +261,7 @@ impl Vm {
         self.intern_table.intern(string)
     }
 
-    fn exec_op<T: Op>(&mut self, op: T) -> Result<(), Error> {
+    fn exec_op<T: optypes::Op>(&mut self, op: T) -> Result<(), Error> {
         match op.exec(self) {
             Some(e) => e.into(),
             None => Ok(()),

@@ -2,6 +2,7 @@ use sysinfo::{System, get_current_pid, Pid};
 
 use super::vm::*;
 use super::error::*;
+use super::optypes::VmOp;
 
 struct Vminfo_ {
     system: System,
