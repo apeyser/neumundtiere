@@ -14,6 +14,10 @@ pub mod unaryops;
 pub mod naryops;
 pub mod binaryops;
 pub mod stackops;
+pub mod numeric;
+pub mod numeric_ops;
+pub mod ops_defs;
+pub mod num;
 
 #[cfg(test)]
 mod tests;
