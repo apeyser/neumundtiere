@@ -6,6 +6,7 @@ use std::str::FromStr;
 pub enum Error {
     IntParse(<i64 as FromStr>::Err, String),
     FloatParse(<f64 as FromStr>::Err, String),
+    USizeParse(<usize as FromStr>::Err, String),
     IllegalSym(String),
     Illformed(String),
     Quit,
