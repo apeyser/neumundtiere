@@ -63,12 +63,11 @@ pub struct CasterBuilder<T: NumericPrimitive + CastFromFloat> {
 
 macro_rules! caster_builder_trait {
     ($($rhs:ident),+) => {
-        paste! {
-            pub trait CasterBuilderTrait<T: NumericPrimitive + CastFromFloat> {
+        pub trait CasterBuilderTrait<T: NumericPrimitive + CastFromFloat> {
+            paste! {
                 $(
-                    fn [<caster_ $rhs>]() -> Caster<T, $rhs> {
-                        Caster::<T, $rhs>::new()
-                    }
+                    #[allow(non_camel_case_types)]
+                    type [<Caster_ $rhs>]: CasterTrait<T, $rhs>;
                 )+
             }
         }
@@ -77,8 +76,13 @@ macro_rules! caster_builder_trait {
 
 macro_rules! caster_builder {
     ($lhs:ty => ($($rhs:ident),+)) => {
-        paste! {
-            impl CasterBuilderTrait<$lhs> for CasterBuilder<$lhs> {}
+        impl CasterBuilderTrait<$lhs> for CasterBuilder<$lhs> {
+            paste! {
+                $(
+                    #[allow(non_camel_case_types)]
+                    type [<Caster_ $rhs>] = Caster<$lhs, $rhs>;
+                )+
+            }
         }
     };
 }
@@ -94,12 +98,6 @@ pub struct Caster<T, U> where
     U: NumericPrimitive {
     lhs: PhantomData<T>,
     rhs: PhantomData<U>,
-}
-
-impl<T, U> Caster<T, U> where
-    T: NumericPrimitive + CastFromFloat,
-    U: NumericPrimitive {
-    pub fn new() -> Self {Self {lhs: PhantomData, rhs: PhantomData}}
 }
 
 pub trait CasterTrait<T, U>: Copy+Clone where

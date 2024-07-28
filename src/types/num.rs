@@ -35,15 +35,16 @@ impl Num {
         }
     }
 
-    fn apply_dyadic_strip<D, T, U, C>(lhs: Number<T>, rhs: Number<U>, _caster: C)
+    fn apply_dyadic_strip<D, C, T, U>(lhs: Number<T>, rhs: Number<U>)
         -> Result<Num, Error>
     where
         T: NumericPrimitive + CastFromFloat,
         U: NumericPrimitive,
         D: DyadicOp,
         Num: From<Number<T>>,
-        C: CasterTrait<T, U> {
-        Ok(D::apply::<_, _, C>(lhs, rhs)?.into())
+        C: CasterTrait<T, U>
+    {
+        Ok(D::apply::<C, _, _>(lhs, rhs)?.into())
     }
 
     fn apply_dyadic_target<D, B, T>(lhs: Number<T>, rhs: Num)
@@ -58,9 +59,9 @@ impl Num {
         Caster::<T, usize>: CasterTrait<T, usize>,
     {
         match rhs {
-            Num::Int(rhs)   => Self::apply_dyadic_strip::<D, _, _, _>(lhs, rhs, B::caster_i64()),
-            Num::Float(rhs) => Self::apply_dyadic_strip::<D, _, _, _>(lhs, rhs, B::caster_f64()),
-            Num::USize(rhs) => Self::apply_dyadic_strip::<D, _, _, _>(lhs, rhs, B::caster_usize()),
+            Num::Int(rhs)   => Self::apply_dyadic_strip::<D, B::Caster_i64, _, _>(lhs, rhs),
+            Num::Float(rhs) => Self::apply_dyadic_strip::<D, B::Caster_f64, _, _>(lhs, rhs),
+            Num::USize(rhs) => Self::apply_dyadic_strip::<D, B::Caster_usize, _, _>(lhs, rhs),
         }
     }
 
