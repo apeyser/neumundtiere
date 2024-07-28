@@ -66,7 +66,7 @@ pub trait DyadicOp {
         Result<cardinality::Scalar<T>, Error> where
         T: NumericPrimitive + CastFromFloat,
         U: NumericPrimitive,
-        C: Caster2Trait<T, U>
+        C: CasterTrait<T, U>
     {
         if let (Value(lhs), Value(rhs)) = (lhs, rhs) {
             let (lhs, rhs) = caster.cast(lhs, rhs);
@@ -80,7 +80,7 @@ pub trait DyadicOp {
         Result<cardinality::Scalar<T>, Error> where
         T: NumericPrimitive + CastFromFloat,
         U: NumericPrimitive,
-        C: Caster2Trait<T, U>
+        C: CasterTrait<T, U>
     {
         Self::operator(lhs, rhs, caster)
     }
@@ -89,7 +89,7 @@ pub trait DyadicOp {
         Result<cardinality::Array<T>, Error> where
         T: NumericPrimitive + CastFromFloat,
         U: NumericPrimitive,
-        C: Caster2Trait<T, U>
+        C: CasterTrait<T, U>
    {
         if lhs.len() != rhs.len() {return Err(Error::LengthMismatch)};
         for (lhs, rhs) in lhs.iter_mut().zip(&rhs) {
@@ -102,7 +102,7 @@ pub trait DyadicOp {
         -> Result<cardinality::Array<T>, Error> where
         T: NumericPrimitive + CastFromFloat,
         U: NumericPrimitive,
-        C: Caster2Trait<T, U>
+        C: CasterTrait<T, U>
     {
         for lhs in &mut lhs {
             *lhs = Self::operator(*lhs, rhs, caster)?
@@ -114,7 +114,7 @@ pub trait DyadicOp {
         -> Result<cardinality::Scalar<T>, Error> where
         T: NumericPrimitive + CastFromFloat,
         U: NumericPrimitive,
-        C: Caster2Trait<T, U>
+        C: CasterTrait<T, U>
     {
         for rhs in rhs {
             lhs = Self::operator(lhs, rhs, caster)?
@@ -126,7 +126,7 @@ pub trait DyadicOp {
         -> Result<cardinality::Array<T>, Error> where
         T: NumericPrimitive + CastFromFloat,
         U: NumericPrimitive,
-        C: Caster2Trait<T, U>
+        C: CasterTrait<T, U>
     {
         match rhs {
             Array(array)   => Self::array_array(lhs, array, caster),
@@ -138,7 +138,7 @@ pub trait DyadicOp {
         -> Result<cardinality::Scalar<T>, Error> where
         T: NumericPrimitive + CastFromFloat,
         U: NumericPrimitive,
-        C: Caster2Trait<T, U>
+        C: CasterTrait<T, U>
     {
         match rhs {
             Array(array)   => Self::scalar_array (lhs, array, caster),
@@ -150,7 +150,7 @@ pub trait DyadicOp {
         -> Result<Number<T>, Error> where
         T: NumericPrimitive + CastFromFloat,
         U: NumericPrimitive,
-        C: Caster2Trait<T, U>
+        C: CasterTrait<T, U>
     {
         match lhs {
             Array(array)   => Ok(Self::target_array (array,  rhs, caster)?.into()),

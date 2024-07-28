@@ -41,22 +41,22 @@ impl CastFromFloat for usize {
 }
 
 #[derive(Clone, Copy)]
-pub struct Caster1<T: NumericPrimitive + CastFromFloat> {
+pub struct CasterBuilder<T: NumericPrimitive + CastFromFloat> {
     lhs: PhantomData<T>,
 }
 
-impl<T> Caster1<T> where
+impl<T> CasterBuilder<T> where
     T: NumericPrimitive + CastFromFloat {
     pub fn new() -> Self {Self {lhs: PhantomData}}
 }
 
-macro_rules! caster_1_trait {
+macro_rules! caster_builder_trait {
     ($($rhs:ident),+) => {
         paste! {
-            pub trait Caster1Trait<T: NumericPrimitive + CastFromFloat>: Copy+Clone {
+            pub trait CasterBuilderTrait<T: NumericPrimitive + CastFromFloat>: Copy+Clone {
                 $(
-                    fn [<caster_ $rhs>](&self) -> Caster2<T, $rhs> {
-                        Caster2::<T, $rhs>::new()
+                    fn [<caster_ $rhs>](&self) -> Caster<T, $rhs> {
+                        Caster::<T, $rhs>::new()
                     }
                 )+
             }
@@ -64,34 +64,34 @@ macro_rules! caster_1_trait {
     };
 }
 
-macro_rules! caster_1 {
+macro_rules! caster_builder {
     ($lhs:ty => ($($rhs:ident),+)) => {
         paste! {
-            impl Caster1Trait<$lhs> for Caster1<$lhs> {}
+            impl CasterBuilderTrait<$lhs> for CasterBuilder<$lhs> {}
         }
     };
 }
 
-caster_1_trait!(i64, f64, usize);
-caster_1!(i64 => (i64, usize, f64));
-caster_1!(usize => (i64, usize, f64));
-caster_1!(f64 => (i64, usize, f64));
+caster_builder_trait!(i64, f64, usize);
+caster_builder!(i64 => (i64, usize, f64));
+caster_builder!(usize => (i64, usize, f64));
+caster_builder!(f64 => (i64, usize, f64));
 
 #[derive(Clone, Copy)]
-pub struct Caster2<T, U> where
+pub struct Caster<T, U> where
     T: NumericPrimitive + CastFromFloat,
     U: NumericPrimitive {
     lhs: PhantomData<T>,
     rhs: PhantomData<U>,
 }
 
-impl<T, U> Caster2<T, U> where
+impl<T, U> Caster<T, U> where
     T: NumericPrimitive + CastFromFloat,
     U: NumericPrimitive {
     pub fn new() -> Self {Self {lhs: PhantomData, rhs: PhantomData}}
 }
 
-pub trait Caster2Trait<T, U>: Copy+Clone where
+pub trait CasterTrait<T, U>: Copy+Clone where
     T: NumericPrimitive + CastFromFloat,
     U: NumericPrimitive {
     type Mid: NumericPrimitive + CastFromFloat;
@@ -99,10 +99,10 @@ pub trait Caster2Trait<T, U>: Copy+Clone where
     fn back_cast(&self, mid: Self::Mid) -> T;
 }
 
-macro_rules! caster_2 {
+macro_rules! caster {
     ($(($lhs:ty, $rhs:ty) => $mid:ty),+) => {
         $(
-            impl Caster2Trait<$lhs, $rhs> for Caster2<$lhs, $rhs> {
+            impl CasterTrait<$lhs, $rhs> for Caster<$lhs, $rhs> {
                 type Mid = $mid;
                 fn cast(&self, lhs: $lhs, rhs: $rhs) -> (Self::Mid, Self::Mid) {(lhs as Self::Mid, rhs as Self::Mid)}
                 fn back_cast(&self, mid: Self::Mid) -> $lhs {mid as $lhs}
@@ -111,7 +111,7 @@ macro_rules! caster_2 {
     };
 }
 
-caster_2!((i64, i64) => i64, (i64, f64) => f64, (i64, usize) => i64,
+caster!((i64, i64) => i64, (i64, f64) => f64, (i64, usize) => i64,
           (usize, i64) => i64, (usize, f64) => f64, (usize, usize) => usize,
           (f64, i64) => f64, (f64, f64) => f64, (f64, usize) => f64);
 
@@ -154,12 +154,6 @@ pub mod cardinality {
     pub type Scalar<T> = super::NumericValue<T>; //where T: super::NumericPrimitive;
     pub type Array<T> = Vec<Scalar<T>>; //where T: super::NumericPrimitive;
 }
-
-// trait ArrayType<T: NumericPrimitive> {}
-// impl<T: NumericPrimitive> ArrayType<T> for cardinality::Array<T> {}
-
-// trait ScalarType<T: NumericPrimitive> {}
-// impl<T: NumericPrimitive> ScalarType<T> for cardinality::Scalar<T> {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Number<T: NumericPrimitive> {

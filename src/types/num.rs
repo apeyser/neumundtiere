@@ -2,7 +2,7 @@ use std::fmt;
 use std::ops::{Add, Sub, Div, Mul, Neg};
 
 use crate::error::*;
-use crate::numeric::{Number, Caster1, Caster1Trait, Caster2, Caster2Trait, CastFromFloat};
+use crate::numeric::{Number, CasterBuilder, CasterBuilderTrait, Caster, CasterTrait, CastFromFloat};
 use crate::numeric::ops::*;
 use crate::numeric::ops_defs::*;
 use crate::numeric::primitive::NumericPrimitive;
@@ -40,10 +40,10 @@ impl Num {
         T: NumericPrimitive + CastFromFloat,
         D: DyadicOp,
         Num: From<Number<T>>,
-        C: Caster1Trait<T>,
-        Caster2::<T, i64>: Caster2Trait<T, i64>,
-        Caster2::<T, f64>: Caster2Trait<T, f64>,
-        Caster2::<T, usize>: Caster2Trait<T, usize>,
+        C: CasterBuilderTrait<T>,
+        Caster::<T, i64>: CasterTrait<T, i64>,
+        Caster::<T, f64>: CasterTrait<T, f64>,
+        Caster::<T, usize>: CasterTrait<T, usize>,
     {
         match rhs {
             Num::Int(rhs)   => Ok(D::apply(lhs, rhs, caster.caster_i64())?.into()),
@@ -54,9 +54,9 @@ impl Num {
 
     pub fn apply_dyadic<D: DyadicOp>(self, rhs: Num) -> Result<Num, Error> {
         match self {
-            Num::Int(lhs)   => Self::apply_dyadic_target::<D, _, _>(lhs, rhs, Caster1::<i64>::new()),
-            Num::Float(lhs) => Self::apply_dyadic_target::<D, _, _>(lhs, rhs, Caster1::<f64>::new()),
-            Num::USize(lhs) => Self::apply_dyadic_target::<D, _, _>(lhs, rhs, Caster1::<usize>::new()),
+            Num::Int(lhs)   => Self::apply_dyadic_target::<D, _, _>(lhs, rhs, CasterBuilder::<i64>::new()),
+            Num::Float(lhs) => Self::apply_dyadic_target::<D, _, _>(lhs, rhs, CasterBuilder::<f64>::new()),
+            Num::USize(lhs) => Self::apply_dyadic_target::<D, _, _>(lhs, rhs, CasterBuilder::<usize>::new()),
         }
     }
 }
