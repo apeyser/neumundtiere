@@ -1,5 +1,5 @@
 use super::*;
-use reader::Reader;
+use crate::reader::Reader;
 
 pub fn exec(reader: &mut Reader, string: String) -> MainResult {
     match exec_string(reader, string) {

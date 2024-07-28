@@ -7,9 +7,11 @@ use std::borrow::Borrow;
 
 use itertools::Itertools;
 
-use super::error::Error;
-use super::vm::{Name, Frame};
-use super::save::{self, Saved, Unwrap, HasNew};
+use crate::error::Error;
+use crate::vm::Frame;
+
+use super::name::Name;
+use super::savable::{Saved, Unwrap, HasNew, PENDING};
 
 pub struct Dict {
     parent: Weak<RefCell<Saved>>,
@@ -106,11 +108,11 @@ impl fmt::Display for Dict {
             None => write!(f, "-- Dropped --"),
             Some(parent) => {
                 let dictfmt = DictFmt::new(&parent).into();
-                if save::PENDING.lock().unwrap().contains(&dictfmt) {
+                if PENDING.lock().unwrap().contains(&dictfmt) {
                     return write!(f, "...")
                 };
 
-                save::PENDING.lock().unwrap().insert(dictfmt);
+                PENDING.lock().unwrap().insert(dictfmt);
                 let Saved::Dict(ref dict) = *(*parent).borrow() else {
                     panic!("Impossible object as dict");
                 };
@@ -119,7 +121,7 @@ impl fmt::Display for Dict {
                                     .map(|(name, frame)| format!("/{name} {frame}"))
                                     .join(" ")
                                     .as_str());
-                save::PENDING.lock().unwrap().remove(&dictfmt);
+                PENDING.lock().unwrap().remove(&dictfmt);
                 r
             },
         }

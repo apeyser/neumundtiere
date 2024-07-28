@@ -1,19 +1,21 @@
-use super::vm::*;
-use super::reader::Reader;
-use super::unaryops;
-use super::binaryops;
-use super::naryops;
+use crate::vm::*;
+use crate::reader::Reader;
+use crate::numeric::{Value, Scalar};
+
+fn int_frame(i: i64) -> Frame {
+    Num::Int(Scalar(Value(i))).into()
+}
 
 #[test]
 fn result() {
     let vm = &mut Vm::new();
     
     let cmd: Vec<Frame> = vec![
-        Num::Int(3).into(),
-        Num::Int(1).into(),
+        int_frame(3),
+        int_frame(1),
         binaryops::ADD.into(),
         unaryops::NEG.into(),
-        Num::Int(2).into(),
+        int_frame(2),
         binaryops::SUB.into(),
         unaryops::NEG.into(),
     ];
@@ -34,18 +36,18 @@ fn result() {
 fn exec() {
     let vm = &mut Vm::new();
     let frames: Vec<Frame> = vec![
-        Num::Int(3).into(),
-        Num::Int(1).into(),
+        int_frame(3),
+        int_frame(1),
         binaryops::ADD.into(),
         unaryops::NEG.into(),
-        Num::Int(2).into(),
+        int_frame(2),
         binaryops::SUB.into(),
         unaryops::NEG.into(),
     ];
     match vm.exec(frames) {
         Err(e) => panic!("Error {e:?}"),
         Ok(None) => panic!("Empty stack"),
-        Ok(Some(frame)) => assert_eq!(Frame::Num(6.into()), frame),
+        Ok(Some(frame)) => assert_eq!(int_frame(6), frame),
     };
 
     let mut reader = Reader::new(vm);
@@ -54,7 +56,7 @@ fn exec() {
         Ok(frames) => match vm.exec(frames) {
             Err(e) => panic!("Error {e:?}"),
             Ok(None) => panic!("Empty stack"),
-            Ok(Some(frame)) => assert_eq!(Frame::Num((-1).into()), frame),
+            Ok(Some(frame)) => assert_eq!(int_frame(-1), frame),
         },
     };
 }
@@ -63,18 +65,18 @@ fn exec() {
 fn stacked() {
     let vm = &mut Vm::new();
     let frames: Vec<Frame> = vec![
-        Num::Int(3).into(),
+        int_frame(3),
         naryops::DUP.into(),
         binaryops::ADD.into(),
         unaryops::NEG.into(),
-        Num::Int(2).into(),
+        int_frame(2),
         binaryops::SUB.into(),
         unaryops::NEG.into(),
     ];
     match vm.exec(frames) {
         Err(e) => panic!("Error {e:?}"),
         Ok(None) => panic!("Empty stack"),
-        Ok(Some(frame)) => assert_eq!(Frame::Num(8.into()), frame),
+        Ok(Some(frame)) => assert_eq!(int_frame(8), frame),
     };
 
     let mut reader = Reader::new(vm);
@@ -83,7 +85,7 @@ fn stacked() {
         Ok(frames) => match vm.exec(frames) {
             Err(e) => panic!("Error {e:?}"),
             Ok(None) => panic!("Empty stack"),
-            Ok(Some(frame)) => assert_eq!(Frame::Num(0.into()), frame),
+            Ok(Some(frame)) => assert_eq!(int_frame(0), frame),
         },
     };
 }

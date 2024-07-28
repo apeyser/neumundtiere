@@ -2,8 +2,8 @@ use std::fmt;
 
 use itertools::Itertools;
 
-use super::vm::*;
-use super::error::Error;
+use super::*;
+use crate::error::Error;
 
 pub trait Op {
     fn exec(&self, vm: &mut Vm) -> Option<Error>;
@@ -59,7 +59,7 @@ impl Op for VmOp {
     }
 }
 
-type UnaryOpFunc = fn(Num) -> Num;
+type UnaryOpFunc = fn(Num) -> Result<Num, Error>;
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct UnaryOp {
     name: &'static str,
@@ -89,13 +89,17 @@ impl Op for UnaryOp {
             Some(Frame::Num(num)) => num,
             Some(_) => return Error::OpType.into(),
         };
-        let r = (self.op)(i);
-        vm.op_stack.push(r.into());
-        None
+        match (self.op)(i) {
+            Ok(r) => {
+                vm.op_stack.push(r.into());
+                None
+            },
+            Err(e) => e.into(),
+        }
     }
 }
 
-type BinaryOpFunc = fn(Num, Num) -> Num;
+type BinaryOpFunc = fn(Num, Num) -> Result<Num, Error>;
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct BinaryOp {
     name: &'static str,
@@ -133,9 +137,13 @@ impl Op for BinaryOp {
             return Error::OpType.into()
         };
 
-        let r = (self.op)(i1, i2);
-        stack.push(r.into());
-        None
+        match (self.op)(i1, i2) {
+            Ok(r) => {
+                stack.push(r.into());
+                None
+            },
+            Err(e) => e.into(),
+        }
     }
 }
 

@@ -1,88 +1,119 @@
-use std::fmt::{self, Debug, Display};
+use std::fmt::{self, Debug};
+use std::marker::PhantomData;
+use itertools::Itertools;
+use num_traits::cast::cast;
+use paste::paste;
 
-use num_traits;
-use num_traits::cast::AsPrimitive;
-use num_traits::ops::checked::*;
+pub mod ops;
+pub mod ops_defs;
+pub mod primitive;
 
-trait NumericPrimitive: Display + Debug + Copy + num_traits::Num + CheckedAdd + CheckedSub + CheckedMul + CheckedDev + AsPrimitive<f64> + AsPrimitive<i64> + AsPrimitive<usize> + Neg;
+use primitive::NumericPrimitive;
 
-impl<T> NumericPrimitive for T where
-    T: Display + Debug + Copy + num_traits::Num + CheckedAdd + CheckedSub, CheckedMul, CheckedDev + AsPrimitive<f64> + Neg;
-
-struct CommonDyadicCast<T, U> where
-    T: NumericPrimitive,
-    U: NumericPrimitive;
-
-impl<T> CommonDyadicCast<T, T> where
-    T: NumericPrimitive
-{
-    fn cast(lhs: T, rhs: T) -> (T, T) {(lhs, rhs)}
+pub trait CastFromFloat: NumericPrimitive {
+    fn cast(f: f64) -> Option<Self>;
 }
 
-impl<T, U> CommonDyadicCast<T, U> where
-    T: NumericPrimitive,
-    U: NumericPrimitive
-{
-    fn cast(lhs: T, rhs: U) -> (U, T) {CommonDyadicCast<U, T>::cast(rhs, lhs)}
+impl CastFromFloat for f64 {
+    fn cast(f: f64) -> Option<Self> {Some(f)}
 }
 
-impl CommonDyadicCast<f64, usize> {
-    fn cast(lhs: f64, rhs: usize) -> (f64, f64) {(lhs, rhs as f64)}
-}
-
-impl CommonDyadicCast<f64, i64> {
-    fn cast(lhs: f64, rhs: i64) -> (f64, f64) {(lhs, rhs as f64)}
-}
-
-impl CommonDyadicCast<i64, usize> {
-    fn cast(lhs: i64, rhs: usize) -> (i128, i128) {(lhs as i128, rhs as i128)}
-}
-
-struct Caster<T, U> where
-    T: NumericPrimitive,
-    U: NumericPrimitive;
-
-impl<T> Caster<T, T> where
-    T: NumericPrimitive
-{
-    fn cast(r: T) -> Option<T> {r}
-}
-
-impl Caster<f64, i64> {
-    fn cast(r: f64) -> Option<i64> {
-        if ! r.is_finite() || r > i64::MAX as f64 || r < i64::MIN as f64  {
-            None
-        } else {
-            Some((r.round() as i64).into())
+impl CastFromFloat for i64 {
+    fn cast(f: f64) -> Option<Self> {
+        if ! f.is_finite() ||
+            f > i64::MAX as f64 ||
+            f < i64::MIN as f64
+        {None} else {
+            Some(f.round() as i64)
         }
     }
 }
 
-impl Caster<f64, usize> {
-    fn cast(r: f64) -> Option<usize> {
-        if ! r.is_finite() || r > usize::MAX as f64 || r < usize::MIN as f64  {
-            None
-        } else {
-            Some((r.round() as usize).into())
+impl CastFromFloat for usize {
+    fn cast(f: f64) -> Option<Self> {
+        if ! f.is_finite() ||
+            f > usize::MAX as f64 ||
+            f < usize::MIN as f64
+        {None} else {
+            Some(f.round() as usize)
         }
     }
 }
 
-impl<T> Caster<T, f64> where T: NumericPrimitive {
-    fn cast(r: T) -> Option<T> {Some(T as f64)}
+#[derive(Clone, Copy)]
+pub struct Caster1<T: NumericPrimitive + CastFromFloat> {
+    lhs: PhantomData<T>,
 }
 
-impl Caster<i64, usize> {
-    fn cast(r: i64) -> Option<usize> {
-        if r < 0 {None} else {Some(r as usize)}
-    }
+impl<T> Caster1<T> where
+    T: NumericPrimitive + CastFromFloat {
+    pub fn new() -> Self {Self {lhs: PhantomData}}
 }
 
-impl Caster<usize, i64> {
-    fn cast(r: usize) -> Option<i64> {
-        if r > i64::MAX as usize {None} else {Some(r as i164)}
-    }
+macro_rules! caster_1_trait {
+    ($($rhs:ident),+) => {
+        paste! {
+            pub trait Caster1Trait<T: NumericPrimitive + CastFromFloat>: Copy+Clone {
+                $(
+                    fn [<caster_ $rhs>](&self) -> Caster2<T, $rhs> {
+                        Caster2::<T, $rhs>::new()
+                    }
+                )+
+            }
+        }
+    };
 }
+
+macro_rules! caster_1 {
+    ($lhs:ty => ($($rhs:ident),+)) => {
+        paste! {
+            impl Caster1Trait<$lhs> for Caster1<$lhs> {}
+        }
+    };
+}
+
+caster_1_trait!(i64, f64, usize);
+caster_1!(i64 => (i64, usize, f64));
+caster_1!(usize => (i64, usize, f64));
+caster_1!(f64 => (i64, usize, f64));
+
+#[derive(Clone, Copy)]
+pub struct Caster2<T, U> where
+    T: NumericPrimitive + CastFromFloat,
+    U: NumericPrimitive {
+    lhs: PhantomData<T>,
+    rhs: PhantomData<U>,
+}
+
+impl<T, U> Caster2<T, U> where
+    T: NumericPrimitive + CastFromFloat,
+    U: NumericPrimitive {
+    pub fn new() -> Self {Self {lhs: PhantomData, rhs: PhantomData}}
+}
+
+pub trait Caster2Trait<T, U>: Copy+Clone where
+    T: NumericPrimitive + CastFromFloat,
+    U: NumericPrimitive {
+    type Mid: NumericPrimitive + CastFromFloat;
+    fn cast(&self, lhs: T, rhs: U) -> (Self::Mid, Self::Mid);
+    fn back_cast(&self, mid: Self::Mid) -> T;
+}
+
+macro_rules! caster_2 {
+    ($(($lhs:ty, $rhs:ty) => $mid:ty),+) => {
+        $(
+            impl Caster2Trait<$lhs, $rhs> for Caster2<$lhs, $rhs> {
+                type Mid = $mid;
+                fn cast(&self, lhs: $lhs, rhs: $rhs) -> (Self::Mid, Self::Mid) {(lhs as Self::Mid, rhs as Self::Mid)}
+                fn back_cast(&self, mid: Self::Mid) -> $lhs {mid as $lhs}
+            }
+        )+
+    };
+}
+
+caster_2!((i64, i64) => i64, (i64, f64) => f64, (i64, usize) => i64,
+          (usize, i64) => i64, (usize, f64) => f64, (usize, usize) => usize,
+          (f64, i64) => f64, (f64, f64) => f64, (f64, usize) => f64);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum NumericValue<T: NumericPrimitive> {
@@ -92,37 +123,20 @@ pub enum NumericValue<T: NumericPrimitive> {
 
 pub use NumericValue::{Value, NaN};
 
-trait ScalarTrait;
-impl<T: NumericPrimitive> ScalarTrait for NumericValue<T>;
-
 impl<T: NumericPrimitive> NumericValue<T> {
-    pub fn is_nan(self) -> {self == Self::NaN}
-}
-
-impl<T: NumericPrimitive> From<T> for NumericValue<T> {
-    fn from(item: T) -> Self {Value(item)}
-}
-
-impl<T: NumericPrimitive> Into<T> for NumericValue<T> {
-    fn into(self) -> T {
+    pub fn is_nan(self) -> bool {self == Self::NaN}
+    pub fn to_primitive(self) -> T {
         match self {
             Value(value) => value,
-            _ => panic!("NaN in into"),
+            _ => panic!("NaN in to_primitive"),
         }
     }
-}
-
-trait Cast<T, U> where
-    T: NumericPrimitive
-
-impl<T, U> Into<NumericValue<T>> for NumericValue<U> where
-    T: NumericPrimitive,
-    U: NumericPrimitive
-{
-    fn into(self) -> T {
-        if let Value(value) = self
-            && let Some(value) = Caster<U, T>::cast(value) {
+    pub fn from_primitive(value: T) -> Self {Value(value)}
+    pub fn to_value<U: NumericPrimitive>(self) -> NumericValue<U> {
+        if let Value(value) = self {
+            if let Some(value) = cast::<T, U>(value) {
                 Value(value)
+            } else {NaN}
         } else {NaN}
     }
 }
@@ -137,17 +151,17 @@ impl<T: NumericPrimitive> fmt::Display for NumericValue<T> {
 }
 
 pub mod cardinality {
-    type Scalar<T: NumericPrimitive> = NumericValue<T>;
-    type Array<T: NumericPrimitive> = Vec<Scalar<T>>;
+    pub type Scalar<T> = super::NumericValue<T>; //where T: super::NumericPrimitive;
+    pub type Array<T> = Vec<Scalar<T>>; //where T: super::NumericPrimitive;
 }
 
-trait ArrayType<T: NumericPrimitive>;
-impl<T: NumericPrimitive> ArrayType<T> for cardinality::Array<T>;
+// trait ArrayType<T: NumericPrimitive> {}
+// impl<T: NumericPrimitive> ArrayType<T> for cardinality::Array<T> {}
 
-trait ScalarType<T: NumericPrimitive>;
-impl<T: NumericPrimitive> ScalarType<T> for cardinality::Scalar<T>;
+// trait ScalarType<T: NumericPrimitive> {}
+// impl<T: NumericPrimitive> ScalarType<T> for cardinality::Scalar<T> {}
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Number<T: NumericPrimitive> {
     Array(cardinality::Array<T>),
     Scalar(cardinality::Scalar<T>),
@@ -155,21 +169,23 @@ pub enum Number<T: NumericPrimitive> {
 
 pub use Number::{Array, Scalar};
 
-impl<T: NumericPrimitive> From<cardinality::Scalar<T>> for Number<T> {
-    fn from(item: cardinality::Scalar<T>) {Scalar(item)}
+impl<T> From<cardinality::Scalar<T>> for Number<T> where
+    T: NumericPrimitive {
+    fn from(item: cardinality::Scalar<T>) -> Number<T> {Scalar(item)}
 }
 
-impl<T: NumericPrimitive> From<cardinality::Array<T>> for Number<T> {
-    fn from(item: cardinality::Array<T>) {Array(item)}
+impl<T> From<cardinality::Array<T>> for Number<T> where
+    T: NumericPrimitive {
+    fn from(item: cardinality::Array<T>) -> Number<T> {Array(item)}
 }
 
-impl<T: NumericPrimitive> fmt::Display for Number<NumericValue<T>> {
+impl<T: NumericPrimitive> fmt::Display for Number<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Scalar(scalar) => write!(f, "{scalar}"),
             Array(array) => {
-                let s = array.iter().map(|scalar| format!("{scalar}")).join(" ").as_str();
-                f.write_str(s)
+                let s = array.iter().map(|scalar| format!("{scalar}")).join(" ");
+                f.write_str(s.as_str())
             },
         }
     }

@@ -2,15 +2,17 @@ use std::rc::{Rc, Weak};
 use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
-use std::collections::{HashSet,HashMap};
-use std::fmt;
+use std::collections::{HashSet, HashMap};
 
 use once_cell::sync::Lazy;
 
-use super::vm::{Frame, Name};
-use super::error::*;
-use super::list::{List,ListFmt};
-use super::dict::{Dict,DictFmt};
+use crate::vm::Frame;
+use crate::error::*;
+
+use super::list::{List, ListFmt};
+use super::dict::{Dict, DictFmt};
+use super::save::{Save, SaveBox};
+use super::name::Name;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum AnyFmt {
@@ -68,6 +70,27 @@ pub trait HasNew {
     }
 
     fn weak_parent(&self) -> Weak<RefCell<Saved>>;
+}
+
+#[derive(Clone, Debug)]
+pub struct RcSaved(Rc<RefCell<Saved>>);
+
+impl RcSaved {
+    fn new(saved: Saved) -> Self {
+        RcSaved(Rc::new(RefCell::new(saved)))
+    }
+}
+
+impl PartialEq for RcSaved {
+    fn eq(&self, other: &RcSaved) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Hash for RcSaved {
+    fn hash<H: Hasher>(&self, hasher: &mut H) { 
+        hasher.write_usize(Rc::as_ptr(&self.0) as usize);
+    }
 }
 
 pub trait Intern: Sized {
@@ -150,103 +173,5 @@ impl Intern for Save {
 
     fn wrap(self) -> Saved {
         Saved::Save(self)
-    }
-}
-
-#[derive(Clone, Debug)]
-struct RcSaved(Rc<RefCell<Saved>>);
-
-impl RcSaved {
-    fn new(saved: Saved) -> Self {
-        RcSaved(Rc::new(RefCell::new(saved)))
-    }
-}
-
-impl PartialEq for RcSaved {
-    fn eq(&self, other: &RcSaved) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-impl Hash for RcSaved {
-    fn hash<H: Hasher>(&self, hasher: &mut H) { 
-        hasher.write_usize(Rc::as_ptr(&self.0) as usize);
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Save {
-    savebox: Vec<RcSaved>,
-}
-
-impl Save {
-    pub fn new() -> Self {
-        Save {savebox: Vec::<_>::new()}
-    }
-
-    fn insert(&mut self, saved: &RcSaved) {
-        self.savebox.push(saved.clone());
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct SaveBox {
-    parent: Weak<RefCell<Saved>>,
-    _pinned: Option<Rc<RefCell<Saved>>>,
-}
-
-impl PartialEq for SaveBox {
-    fn eq(&self, other: &Self) -> bool {
-        match (self.parent.upgrade(), other.parent.upgrade()) {
-            (Some(ref parent), Some(ref other)) => Rc::ptr_eq(parent, other),
-            (None, None) => true,
-            _ => false,
-        }
-    }
-}
-
-impl HasNew for SaveBox {
-    fn new(parent: &Rc<RefCell<Saved>>) -> Self {
-        Self {parent: Rc::<_>::downgrade(parent), _pinned: None}
-    }
-
-    fn weak_parent(&self) -> Weak<RefCell<Saved>> {
-        self.parent.clone()
-    }
-}
-
-impl SaveBox {
-    pub fn base() -> Self {
-        let parent = Rc::new(RefCell::new(Saved::Save(Save::new())));
-        Self {_pinned: Some(parent.clone()), ..Self::new(&parent)}
-    }
-
-    pub fn len(&self) -> Result<usize, Error> {
-        let parent = self.get_parent()?;
-        let saved = &*parent.borrow();
-        let save: &Save = saved.unwrap();
-        Ok(save.savebox.len())
-    }
-
-    pub fn put<T: Intern>(&mut self, obj: T) -> Result<T::Interned, Error> {
-        let parent = self.get_parent()?;
-        let parent = &mut *parent.borrow_mut();
-        let save: &mut Save = parent.unwrap_mut();
-        Ok(obj.intern(save))
-    }
-}
-
-impl fmt::Display for SaveBox {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.parent.upgrade() {
-            None => write!(f, "-- Dropped --"),
-            Some(parent) => {
-                let Saved::Save(ref save) = *parent.borrow() else {
-                    panic!("Impossible object as list");
-                };
-
-                write!(f, "len={}", save.savebox.len())
-            },
-        }
     }
 }

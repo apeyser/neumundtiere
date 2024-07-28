@@ -5,9 +5,10 @@ use std::hash::{Hash, Hasher};
 
 use itertools::Itertools;
 
-use super::error::Error;
-use super::vm::Frame;
-use super::save::{self, Saved, Unwrap, HasNew};
+use crate::error::Error;
+use crate::vm::Frame;
+
+use super::savable::{Saved, Unwrap, HasNew, PENDING};
 
 #[derive(Debug, Clone)]
 pub struct List {
@@ -114,11 +115,11 @@ impl fmt::Display for List {
             None => write!(f, "-- Dropped --"),
             Some(parent) => {
                 let listfmt = ListFmt::new(&parent, self.start, self.len).into();
-                if save::PENDING.lock().unwrap().contains(&listfmt) {
+                if PENDING.lock().unwrap().contains(&listfmt) {
                     return write!(f, "...")
                 };
 
-                save::PENDING.lock().unwrap().insert(listfmt);
+                PENDING.lock().unwrap().insert(listfmt);
                 let Saved::List(ref list) = *parent.borrow() else {
                     panic!("Impossible object as list");
                 };
@@ -127,7 +128,7 @@ impl fmt::Display for List {
                                         .map(|frame| format!("{frame}"))
                                         .join(" ")
                                         .as_str());
-                save::PENDING.lock().unwrap().remove(&listfmt);
+                PENDING.lock().unwrap().remove(&listfmt);
                 r
             },
         }

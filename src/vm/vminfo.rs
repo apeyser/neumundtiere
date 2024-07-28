@@ -1,8 +1,11 @@
 use sysinfo::{System, get_current_pid, Pid};
 
-use super::vm::*;
-use super::error::*;
+use crate::error::Error;
+use crate::numeric::{Scalar, Value};
+
+use super::*;
 use super::optypes::VmOp;
+
 
 struct Vminfo_ {
     system: System,
@@ -37,6 +40,6 @@ pub fn vmstatus(_: Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
         },
     };
 
-    Ok(vec![Num::Int(max as i64).into(), Num::Int(used as i64).into()])
+    Ok(vec![Num::Int(Scalar(Value(max))).into(), Num::Int(Scalar(Value(used))).into()])
 }
 pub const VMSTATUS: VmOp = VmOp::new("vmstats", vmstatus, 0);

@@ -1,5 +1,6 @@
-use super::vm::*;
-use super::error::Error;
+use crate::error::Error;
+
+use super::*;
 use super::optypes::StackOp;
 
 fn fclear(stack: &Vec<Frame>, _: Vec<Frame>) -> Result<(Vec<Frame>, usize), Error> {

@@ -9,7 +9,7 @@ use rustyline::{self, DefaultEditor};
 use dirs::home_dir;
 
 use super::*;
-use reader::Reader;
+use crate::reader::Reader;
 
 pub struct Lines {
     #[cfg(feature = "with-file-history")]

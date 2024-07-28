@@ -2,8 +2,8 @@ pub mod line;
 pub mod readline;
 pub mod string;
 
-use super::error::*;
-use super::reader::{self, Reader};
+use crate::error::*;
+use crate::reader::Reader;
 use super::run::MainResult;
 
 pub fn exec_string(reader: &mut Reader, string: String) -> Option<Result<(), Error>>

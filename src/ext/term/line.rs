@@ -2,7 +2,7 @@ use std::io;
 use std::io::Write;
 
 use super::*;
-use reader::Reader;
+use crate::reader::Reader;
 
 pub struct Lines {
     lines: std::io::Lines<std::io::StdinLock<'static>>

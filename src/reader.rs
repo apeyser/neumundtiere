@@ -1,8 +1,12 @@
+use std::str::FromStr;
+use std::convert::From;
 use regex::{Regex, RegexBuilder, Captures, Match};
 
-use super::vm::*;
-use super::error::*;
-use super::vmops;
+use crate::vm::{self, *};
+use crate::error::*;
+use crate::numeric::{Number, NumericValue};
+use crate::types::num::Num;
+use crate::numeric::primitive::NumericPrimitive;
 
 pub struct Reader<'a> {
     regex: Regex,
@@ -12,73 +16,88 @@ pub struct Reader<'a> {
     vm: &'a mut Vm,
 }
 
-static FLOAT: &str = r"[+\-]?(?:(?:\d+[eE][+\-]?\d+)|(?:(?:\d+[.]\d*)|(?:[.]\d+))(?:[eE][+\-]?\d+)?)"
-static USIZE: &str = r"\d+";
-static INT: &str = r"[+\-]?\d+";
+struct RegexStrings {
+    array_f: String,
+    array_u: String,
+    array_i: String,
+    regex: String,
+}
 
-static ARRAY_F_REGEX: &str = format!(r"\s+(?<value>{FLOAT})d?").as_str();
-static ARRAY_U_REGEX: &str = format!(r"\s+(?<value>{IUSIZE})u?").as_str();
-static ARRAY_I_REGEX: &str = format!(r"\s+(?<value>{INT})l?").as_str();
+impl RegexStrings {
+    pub fn new() -> Self {
+        let re_f = r"[+\-]?(?:(?:\d+[eE][+\-]?\d+)|(?:(?:\d+[.]\d*)|(?:[.]\d+))(?:[eE][+\-]?\d+)?)";
+        let re_u = r"\d+";
+        let re_i = r"[+\-]?\d+";
 
-static REGEX: &str = format!(r"
+        let array_f = format!(r"\s+(?<value>{re_f})d?");
+        let array_u = format!(r"\s+(?<value>{re_u})u?");
+        let array_i = format!(r"\s+(?<value>{re_i})l?");
+        
+        let regex = format!(r"
 ^\s*
 (?:
-  (?:(?<float>{FLOAT})d?)
- |(?:(?<usize>{USIZE})u)
- |(?:(?<int>{INT})l?)
- |(?<farray><d(?:<array>[^>]*)\s*>)
- |(?<iarray><l(?:<array>[^>]*)\s*>)
- |(?<uarray><u(?:<array>[^>]*)\s*>)
- |/(?<pname>[^\s/{}\[\]()]+)
- |(?<aname>[^\s/{}\[\]()]+)
+  (?:(?<float>{re_f})d?)
+ |(?:(?<usize>{re_u})u)
+ |(?:(?<int>{re_i})l?)
+ |(?:<d(?:<farray>[^>]*)\s*>)
+ |(?:<l(?:<iarray>[^>]*)\s*>)
+ |(?:<u(?:<uarray>[^>]*)\s*>)
+ |/(?<pname>[^\s/{{}}\[\]()]+)
+ |(?<aname>[^\s/{{}}\[\]()]+)
  |\((?<string>(?:\\\(|[^\)])*)\)
  |(?<pmark>\[)
  |(?<mklist>\])
- |(?<amark>\{)
- |(?<mkproc>\})
+ |(?<amark>\{{)
+ |(?<mkproc>\}})
  |(?<illegal>\S+)
 )\s*
 (?:[|][^\n]*(?:\n|$))?
-").as_str();
+");
+        Self {
+            array_f,
+            array_u,
+            array_i,
+            regex,
+        }
+    }
+}
 
-fn mkregex(s: &str) -> Regex {
-    match RegexBuilder::new(s).ignore_whitespace(true).build() {
+fn mkregex(s: &String) -> Regex {
+    match RegexBuilder::new(s.as_str()).ignore_whitespace(true).build() {
         Err(err) => panic!("Failed regex: {:?}, '{s}'", err),
         Ok(regex) => regex,
     }
 }
 
-trait ParseError {
-    fn error(err: FromStr::Err, s: &str) -> Error;
+trait ParseError: FromStr {
+    fn error(err: Self::Err, s: &str) -> Error;
 }
 
-trait ParseError for f64 {
-    fn error(err: FromStr::Err, s: String) -> Error {
-        Error::FloatParse(err, s)
+macro_rules! make_parse_error {
+    ($($prim:ty => $ident:path),+) => {
+        $(
+            impl ParseError for $prim {
+                fn error(err: Self::Err, s: &str) -> Error {
+                    $ident(err, s.to_string())
+                }
+            }
+        )+
     }
 }
 
-trait ParseError for i64 {
-    fn error(err: FromStr::Err, s: String) -> Error {
-        Error::IntParse(err, s)
-    }
-}
-
-trait ParseError for i64 {
-    fn error(err: FromStr::Err, s: String) -> Error {
-        Error::USizeParse(err, s)
-    }
-}
+make_parse_error!(f64 => Error::FloatParse,
+                  i64 => Error::IntParse,
+                  usize => Error::USizeParse);
 
 fn parse<T: ParseError>(m: Match) -> Result<T, Error> {
     match m.as_str().parse::<T>() {
         Ok(v) => Ok(v),
-        Err(e) => Err(<T as ParseError>::error(e, String::from(m.as_str()))),
+        Err(e) => Err(<T as ParseError>::error(e, m.as_str())),
     }
 }
 
 fn next_number<'a>(string: &'a str, re: &Regex) ->
-    Result<(&'a str, Match), Error>
+    Result<(&'a str, Match<'a>), Error>
 {
     let Some(captures) = re.captures(string) else {
         return Err(Error::Illformed(String::from(string)))
@@ -90,29 +109,46 @@ fn next_number<'a>(string: &'a str, re: &Regex) ->
     let Some(m) = captures.name("value") else {
         panic!("Bad value capture: {:?}", captures)
     };
-    Ok((string, m)) 
+    Ok((string, m))
 }
 
-fn mkarray<T: ParseError>(string: &str, re: &Regex) ->
-    Result<Vec<T>, Error>
+fn mkarray<T>(m: Match, re: &Regex) ->
+    Result<Frame, Error> where
+    T: ParseError + NumericPrimitive,
+    Num: From<Number<T>>
 {
-    let mut string = string;
-    let r = Vec::<T>::new();
+    let mut string = m.as_str();
+    let mut r = Vec::<NumericValue<T>>::new();
     while string.len() > 0 {
         let (nstring, m) = next_number(string, re)?;
         string = nstring;
-        r.push(parse::<T>(m)?);
+        if m.as_str() == "*" {
+            r.push(NumericValue::<T>::NaN)
+        } else {
+            r.push(NumericValue::<T>::Value(parse::<T>(m)?));
+        }
     };
-    r
+    Ok(Frame::Num(Number::<T>::Array(r).into()))
+}
+
+fn mkscalar<T>(m: Match) ->
+    Result<Frame, Error> where
+    T: NumericPrimitive + ParseError,
+    Num: From<Number<T>>
+{
+    let value = parse::<T>(m)?;
+    let value = NumericValue::<T>::from_primitive(value);
+    Ok(Frame::Num(Number::<T>::Scalar(value).into()))
 }
 
 impl<'a> Reader<'a> {
     pub fn new(vm: &'a mut Vm) -> Self {
+        let strings = RegexStrings::new();
         Self {
-            regex: mkregex(REGEX),
-            array_f: mkregex(ARRAY_F_REGEX),
-            array_u: mkregex(ARRAY_U_REGEX),
-            array_i: mkregex(ARRAY_I_REGEX),
+            regex:   mkregex(&strings.regex),
+            array_f: mkregex(&strings.array_f),
+            array_u: mkregex(&strings.array_u),
+            array_i: mkregex(&strings.array_i),
             vm,
         }
     }
@@ -151,25 +187,25 @@ impl<'a> Reader<'a> {
 
     fn convert(&mut self, captures: Captures) -> Result<Frame, Error> {
         if let Some(m) = captures.name("float") {
-            Ok(Frame::Num(parse::<f64>(m)?.into()))
+            mkscalar::<f64>(m)
         } else if let Some(m) = captures.name("int") {
-            Ok(Frame::Num(parse::<i64>(m)?.into()))
+            mkscalar::<i64>(m)
         } else if let Some(m) = captures.name("usize") {
-            Ok(Frame::Num(parse::<usize>(m)?.into()))
+            mkscalar::<usize>(m)
         } else if let Some(m) = captures.name("farray") {
-            Ok(Frame::Num(mkarray::<f64>(m.as_str(), &self.array_f)?.into()))
+            mkarray::<f64>(m, &self.array_f)
         } else if let Some(m) = captures.name("iarray") {
-            Ok(Frame::Num(mkarray::<i64>(m.as_str(), &self.array_i)?.into()))
+            mkarray::<i64>(m, &self.array_i)
         } else if let Some(m) = captures.name("uarray") {
-            Ok(Frame::Num(array::<usize>(m.as_str(), &self.array_u)?.into()))
+            mkarray::<usize>(m, &self.array_u)
         } else if let Some(_) = captures.name("pmark") {
             Ok(Passive::Mark.into())
         } else if let Some(_) = captures.name("mklist") {
-            Ok(vmops::MKLIST.into())
+            Ok(vm::ops::MKLIST.into())
         } else if let Some(_) = captures.name("amark") {
             Ok(Active::Mark.into())
         } else if let Some(_) = captures.name("mkproc") {
-            Ok(vmops::MKPROC.into())
+            Ok(vm::ops::MKPROC.into())
         } else if let Some(m) = captures.name("pname") {
             Ok(Passive::Name(self.vm.intern(String::from(m.as_str()))).into())
         } else if let Some(m) = captures.name("aname") {
