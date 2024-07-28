@@ -107,6 +107,7 @@ fn mkpass(mut stack: Vec<Frame>) -> Result<Vec<Frame>, Error> {
         Active::Name(name)     => Passive::Name(name),
         Active::String(string) => Passive::String(string),
         Active::Mark           => Passive::Mark,
+        Active::EndMark        => Passive::EndMark,
         Active::List(list)     => Passive::List(list),
     };
     Ok(vec![passive.into()])
@@ -121,6 +122,7 @@ fn mkact(mut stack: Vec<Frame>) -> Result<Vec<Frame>, Error> {
         Passive::Name(name)     => Active::Name(name),
         Passive::String(string) => Active::String(string),
         Passive::Mark           => Active::Mark,
+        Passive::EndMark        => Active::EndMark,
         Passive::List(list)     => Active::List(list),
     };
     Ok(vec![active.into()])

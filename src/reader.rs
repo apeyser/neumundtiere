@@ -205,7 +205,7 @@ impl<'a> Reader<'a> {
         } else if let Some(_) = captures.name("amark") {
             Ok(Active::Mark.into())
         } else if let Some(_) = captures.name("mkproc") {
-            Ok(vm::ops::MKPROC.into())
+            Ok(Active::EndMark.into())
         } else if let Some(m) = captures.name("pname") {
             Ok(Passive::Name(self.vm.intern(String::from(m.as_str()))).into())
         } else if let Some(m) = captures.name("aname") {

@@ -30,6 +30,7 @@ pub enum Active {
     String(String),
     Name(Name),
     Mark,
+    EndMark,
     List(List),
 }
 
@@ -57,6 +58,7 @@ impl fmt::Display for Active {
             Active::String(string) => write!(f, "~({string})"),
             Active::Name(name) => write!(f, "~/({name})"),
             Active::Mark => write!(f, "{{"),
+            Active::EndMark => write!(f, "}}"),
             Active::List(list) => write!(f, "{{ {list} }}"),
         }
     }
@@ -67,6 +69,7 @@ pub enum Passive {
     String(String),
     Name(Name),
     Mark,
+    EndMark,
     List(List),
 }
 
@@ -94,6 +97,7 @@ impl fmt::Display for Passive {
             Passive::String(string) => write!(f, "({string})"),
             Passive::Name(name) => write!(f, "/({name})"),
             Passive::Mark => write!(f, "["),
+            Passive::EndMark => write!(f, "]"),
             Passive::List(list) => write!(f, "[ {list} ]"),
         }
     }
@@ -191,7 +195,6 @@ fn base_map(t: &mut InternTable) -> HashMap<Name, Frame> {
         &ops::MKNAME,
         &ops::EXEC,
         &ops::MKLIST,
-        &ops::MKPROC,
         &ops::LIST,
         &naryops::POP,
         &naryops::DUP,
@@ -289,6 +292,12 @@ impl Vm {
                 Frame::Active(Active::Mark) => {
                     self.proc_depth += 1;
                     self.op_stack.push(frame)
+                },
+
+                Frame::Active(Active::EndMark) => {
+                    assert!(self.proc_depth > 0);
+                    self.proc_depth -= 1;
+                    self.exec_op(ops::MKPROC)?
                 },
 
                 _ if self.proc_depth > 0 => self.op_stack.push(frame),

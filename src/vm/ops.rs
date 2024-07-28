@@ -72,8 +72,6 @@ fn mkproc(_: Vec<Frame>, vm: &mut Vm) -> Result<Vec<Frame>, Error> {
         panic!("save stack is empty")
     };
     let list = csave.put(r)?;
-    assert!(vm.proc_depth > 0);
-    vm.proc_depth -= 1;
     Ok(vec![Active::List(list).into()])
 }
 pub const MKPROC: VmOp = VmOp::new("mkproc", mkproc, 0);
