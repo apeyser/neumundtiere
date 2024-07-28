@@ -35,28 +35,43 @@ impl Num {
         }
     }
 
-    fn apply_dyadic_target<D, T, C>(lhs: Number<T>, rhs: Num, caster: C) ->
-        Result<Num, Error> where
+    fn apply_dyadic_strip<D, T, U, C>(lhs: Number<T>, rhs: Number<U>, _caster: C)
+        -> Result<Num, Error>
+    where
+        T: NumericPrimitive + CastFromFloat,
+        U: NumericPrimitive,
+        D: DyadicOp,
+        Num: From<Number<T>>,
+        C: CasterTrait<T, U> {
+        Ok(D::apply::<_, _, C>(lhs, rhs)?.into())
+    }
+
+    fn apply_dyadic_target<D, B, T>(lhs: Number<T>, rhs: Num)
+        -> Result<Num, Error>
+    where
         T: NumericPrimitive + CastFromFloat,
         D: DyadicOp,
         Num: From<Number<T>>,
-        C: CasterBuilderTrait<T>,
+        B: CasterBuilderTrait<T>,
         Caster::<T, i64>: CasterTrait<T, i64>,
         Caster::<T, f64>: CasterTrait<T, f64>,
         Caster::<T, usize>: CasterTrait<T, usize>,
     {
         match rhs {
-            Num::Int(rhs)   => Ok(D::apply(lhs, rhs, caster.caster_i64())?.into()),
-            Num::Float(rhs) => Ok(D::apply(lhs, rhs, caster.caster_f64())?.into()),
-            Num::USize(rhs) => Ok(D::apply(lhs, rhs, caster.caster_usize())?.into()),
+            Num::Int(rhs)   => Self::apply_dyadic_strip::<D, _, _, _>(lhs, rhs, B::caster_i64()),
+            Num::Float(rhs) => Self::apply_dyadic_strip::<D, _, _, _>(lhs, rhs, B::caster_f64()),
+            Num::USize(rhs) => Self::apply_dyadic_strip::<D, _, _, _>(lhs, rhs, B::caster_usize()),
         }
     }
 
     pub fn apply_dyadic<D: DyadicOp>(self, rhs: Num) -> Result<Num, Error> {
         match self {
-            Num::Int(lhs)   => Self::apply_dyadic_target::<D, _, _>(lhs, rhs, CasterBuilder::<i64>::new()),
-            Num::Float(lhs) => Self::apply_dyadic_target::<D, _, _>(lhs, rhs, CasterBuilder::<f64>::new()),
-            Num::USize(lhs) => Self::apply_dyadic_target::<D, _, _>(lhs, rhs, CasterBuilder::<usize>::new()),
+            Num::Int(lhs)   =>
+                Self::apply_dyadic_target::<D, CasterBuilder::<i64>, _>(lhs, rhs),
+            Num::Float(lhs) =>
+                Self::apply_dyadic_target::<D, CasterBuilder::<f64>, _>(lhs, rhs),
+            Num::USize(lhs) =>
+                Self::apply_dyadic_target::<D, CasterBuilder::<usize>, _>(lhs, rhs),
         }
     }
 }

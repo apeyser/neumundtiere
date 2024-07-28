@@ -62,33 +62,33 @@ pub trait DyadicOp {
         Result<cardinality::Scalar<T>, Error> where
         T: NumericPrimitive + CastFromFloat;
     
-    fn operator<T, U, C>(lhs: cardinality::Scalar<T>, rhs: cardinality::Scalar<U>, caster: C) ->
+    fn operator<T, U, C>(lhs: cardinality::Scalar<T>, rhs: cardinality::Scalar<U>) ->
         Result<cardinality::Scalar<T>, Error> where
         T: NumericPrimitive + CastFromFloat,
         U: NumericPrimitive,
         C: CasterTrait<T, U>
     {
         if let (Value(lhs), Value(rhs)) = (lhs, rhs) {
-            let (lhs, rhs) = caster.cast(lhs, rhs);
+            let (lhs, rhs) = C::cast(lhs, rhs);
             let mid = Self::func(lhs, rhs)?;
             if let Value(mid) = mid {
-                if let Some(mid) = caster.back_cast(mid) {
+                if let Some(mid) = C::back_cast(mid) {
                     Ok(Value(mid))
                 } else {Ok(NaN)}
             } else {Ok(NaN)}
         } else {Ok(NaN)}
     }
 
-    fn scalar_scalar<T, U, C>(lhs: cardinality::Scalar<T>, rhs: cardinality::Scalar<U>, caster: C) ->
+    fn scalar_scalar<T, U, C>(lhs: cardinality::Scalar<T>, rhs: cardinality::Scalar<U>) ->
         Result<cardinality::Scalar<T>, Error> where
         T: NumericPrimitive + CastFromFloat,
         U: NumericPrimitive,
         C: CasterTrait<T, U>
     {
-        Self::operator(lhs, rhs, caster)
+        Self::operator::<_, _, C>(lhs, rhs)
     }
 
-    fn array_array<T, U, C>(mut lhs: cardinality::Array<T>, rhs: cardinality::Array<U>, caster: C) ->
+    fn array_array<T, U, C>(mut lhs: cardinality::Array<T>, rhs: cardinality::Array<U>) ->
         Result<cardinality::Array<T>, Error> where
         T: NumericPrimitive + CastFromFloat,
         U: NumericPrimitive,
@@ -96,68 +96,68 @@ pub trait DyadicOp {
    {
         if lhs.len() != rhs.len() {return Err(Error::LengthMismatch)};
         for (lhs, rhs) in lhs.iter_mut().zip(&rhs) {
-            *lhs = Self::operator(*lhs, *rhs, caster)?
+            *lhs = Self::operator::<_, _, C>(*lhs, *rhs)?
         };
         Ok(lhs)
     }
 
-    fn array_scalar<T, U, C>(mut lhs: cardinality::Array<T>, rhs: cardinality::Scalar<U>, caster: C)
+    fn array_scalar<T, U, C>(mut lhs: cardinality::Array<T>, rhs: cardinality::Scalar<U>)
         -> Result<cardinality::Array<T>, Error> where
         T: NumericPrimitive + CastFromFloat,
         U: NumericPrimitive,
         C: CasterTrait<T, U>
     {
         for lhs in &mut lhs {
-            *lhs = Self::operator(*lhs, rhs, caster)?
+            *lhs = Self::operator::<_, _, C>(*lhs, rhs)?
         };
         Ok(lhs)
     }
 
-    fn scalar_array<T, U, C>(mut lhs: cardinality::Scalar<T>, rhs: cardinality::Array<U>, caster: C)
+    fn scalar_array<T, U, C>(mut lhs: cardinality::Scalar<T>, rhs: cardinality::Array<U>)
         -> Result<cardinality::Scalar<T>, Error> where
         T: NumericPrimitive + CastFromFloat,
         U: NumericPrimitive,
         C: CasterTrait<T, U>
     {
         for rhs in rhs {
-            lhs = Self::operator(lhs, rhs, caster)?
+            lhs = Self::operator::<_, _, C>(lhs, rhs)?
         };
         Ok(lhs)
     }
     
-    fn target_array<T, U, C>(lhs: cardinality::Array<T>, rhs: Number<U>, caster: C)
+    fn target_array<T, U, C>(lhs: cardinality::Array<T>, rhs: Number<U>)
         -> Result<cardinality::Array<T>, Error> where
         T: NumericPrimitive + CastFromFloat,
         U: NumericPrimitive,
         C: CasterTrait<T, U>
     {
         match rhs {
-            Array(array)   => Self::array_array(lhs, array, caster),
-            Scalar(scalar) => Self::array_scalar(lhs, scalar, caster),
+            Array(array)   => Self::array_array::<_, _, C>(lhs, array),
+            Scalar(scalar) => Self::array_scalar::<_, _, C>(lhs, scalar),
         }
     }
 
-    fn target_scalar<T, U, C>(lhs: cardinality::Scalar<T>, rhs: Number<U>, caster: C)
+    fn target_scalar<T, U, C>(lhs: cardinality::Scalar<T>, rhs: Number<U>)
         -> Result<cardinality::Scalar<T>, Error> where
         T: NumericPrimitive + CastFromFloat,
         U: NumericPrimitive,
         C: CasterTrait<T, U>
     {
         match rhs {
-            Array(array)   => Self::scalar_array (lhs, array, caster),
-            Scalar(scalar) => Self::scalar_scalar(lhs, scalar, caster),
+            Array(array)   => Self::scalar_array::<_, _, C>(lhs, array),
+            Scalar(scalar) => Self::scalar_scalar::<_, _, C>(lhs, scalar),
         }
     }
 
-    fn apply<T, U, C>(lhs: Number<T>, rhs: Number<U>, caster: C)
+    fn apply<T, U, C>(lhs: Number<T>, rhs: Number<U>)
         -> Result<Number<T>, Error> where
         T: NumericPrimitive + CastFromFloat,
         U: NumericPrimitive,
         C: CasterTrait<T, U>
     {
         match lhs {
-            Array(array)   => Ok(Self::target_array (array,  rhs, caster)?.into()),
-            Scalar(scalar) => Ok(Self::target_scalar(scalar, rhs, caster)?.into()),
+            Array(array)   => Ok(Self::target_array::<_, _, C>(array,  rhs)?.into()),
+            Scalar(scalar) => Ok(Self::target_scalar::<_, _, C>(scalar, rhs)?.into()),
         }
     }
 }

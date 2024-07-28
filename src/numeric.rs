@@ -57,22 +57,16 @@ macro_rules! cast_from_128 {
 
 cast_from_128!(i64, usize);
 
-#[derive(Clone, Copy)]
 pub struct CasterBuilder<T: NumericPrimitive + CastFromFloat> {
     lhs: PhantomData<T>,
-}
-
-impl<T> CasterBuilder<T> where
-    T: NumericPrimitive + CastFromFloat {
-    pub fn new() -> Self {Self {lhs: PhantomData}}
 }
 
 macro_rules! caster_builder_trait {
     ($($rhs:ident),+) => {
         paste! {
-            pub trait CasterBuilderTrait<T: NumericPrimitive + CastFromFloat>: Copy+Clone {
+            pub trait CasterBuilderTrait<T: NumericPrimitive + CastFromFloat> {
                 $(
-                    fn [<caster_ $rhs>](&self) -> Caster<T, $rhs> {
+                    fn [<caster_ $rhs>]() -> Caster<T, $rhs> {
                         Caster::<T, $rhs>::new()
                     }
                 )+
@@ -112,8 +106,8 @@ pub trait CasterTrait<T, U>: Copy+Clone where
     T: NumericPrimitive + CastFromFloat,
     U: NumericPrimitive {
     type Mid: NumericPrimitive + CastFromFloat;
-    fn cast(&self, lhs: T, rhs: U) -> (Self::Mid, Self::Mid);
-    fn back_cast(&self, mid: Self::Mid) -> Option<T>;
+    fn cast(lhs: T, rhs: U) -> (Self::Mid, Self::Mid);
+    fn back_cast(mid: Self::Mid) -> Option<T>;
 }
 
 macro_rules! caster_base {
@@ -121,10 +115,10 @@ macro_rules! caster_base {
         $(
             impl CasterTrait<$lhs, $rhs> for Caster<$lhs, $rhs> {
                 type Mid = $mid;
-                fn cast(&self, lhs: $lhs, rhs: $rhs) -> (Self::Mid, Self::Mid) {
+                fn cast(lhs: $lhs, rhs: $rhs) -> (Self::Mid, Self::Mid) {
                     $cast(lhs, rhs)
                 }
-                fn back_cast(&self, mid: Self::Mid) -> Option<$lhs> {
+                fn back_cast(mid: Self::Mid) -> Option<$lhs> {
                     $back_cast(mid)
                 }
             }
