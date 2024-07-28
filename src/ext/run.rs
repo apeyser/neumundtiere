@@ -5,8 +5,8 @@ use std::error::Error;
 
 use clap::{Parser, Subcommand};
 
-use super::vm::Vm;
-use super::reader::Reader;
+use crate::vm::Vm;
+use crate::reader::Reader;
 use super::term;
 
 pub type MainResult = Result<(), Box<dyn Error>>;

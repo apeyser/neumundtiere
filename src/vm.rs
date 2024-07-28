@@ -3,23 +3,27 @@ use std::convert::From;
 use std::collections::{HashMap, VecDeque};
 use std::borrow::Borrow;
 
-use super::term;
-use super::error::*;
-use super::reader::Reader;
-use super::save::SaveBox;
-use super::list::List;
-use super::dict::Dict;
-use super::optypes::*;
-use super::vminfo::{self, Vminfo};
-use super::optypes;
-use super::vmops;
-use super::unaryops;
-use super::binaryops;
-use super::naryops;
-use super::stackops;
+use crate::ext::term;
+use crate::error::*;
+use crate::reader::Reader;
+use crate::types::save::SaveBox;
+use crate::types::list::List;
+use crate::types::dict::Dict;
 
-pub use super::name::{Name, InternTable};
-pub use super::num::Num;
+pub use crate::types::name::{Name, InternTable};
+pub use crate::types::num::Num;
+use crate::numeric::{Scalar, NaN};
+
+pub(crate) mod optypes;
+pub(crate) mod unaryops;
+pub(crate) mod binaryops;
+pub(crate) mod naryops;
+mod stackops;
+pub mod ops;
+mod vminfo;
+
+use optypes::*;
+use vminfo::Vminfo;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Active {
@@ -175,6 +179,7 @@ impl fmt::Display for Frame {
 fn base_map(t: &mut InternTable) -> HashMap<Name, Frame> {
     let mut dict = HashMap::from_iter([
         &unaryops::NEG as &dyn optypes::Op,
+        &unaryops::COS as &dyn optypes::Op,
         &binaryops::ADD,
         &binaryops::SUB,
         &binaryops::MUL,
@@ -182,11 +187,12 @@ fn base_map(t: &mut InternTable) -> HashMap<Name, Frame> {
         &stackops::CLEAR,
         &stackops::SHOW,
         &stackops::PEEK,
-        &vmops::NAME,
-        &vmops::MKNAME,
-        &vmops::EXEC,
-        &vmops::MKLIST,
-        &vmops::LIST,
+        &ops::NAME,
+        &ops::MKNAME,
+        &ops::EXEC,
+        &ops::MKLIST,
+        &ops::MKPROC,
+        &ops::LIST,
         &naryops::POP,
         &naryops::DUP,
         &naryops::EXCH,
@@ -209,7 +215,7 @@ fn base_map(t: &mut InternTable) -> HashMap<Name, Frame> {
         ("-",    binaryops::SUB.into()),
         ("×",    binaryops::MUL.into()),
         ("÷",    binaryops::DIV.into()),
-        ("*",    Num::NaN.into()),
+        ("*",    Num::Int(Scalar(NaN)).into()),
         ("==",   stackops::SHOW.into()),
         ("=",    stackops::PEEK.into()),
         ("mark", Passive::Mark.into()),
@@ -228,6 +234,7 @@ pub struct Vm {
     pub(crate) dict_stack: VecDeque<Dict>,
     pub(crate) vminfo: Vminfo,
     pub(crate) intern_table: InternTable,
+    pub(crate) proc_depth: usize,
 }
 
 impl Vm {
@@ -244,6 +251,7 @@ impl Vm {
             dict_stack: vec![dict].into(),
             vminfo: Vminfo::new(),
             intern_table,
+            proc_depth: 0,
         }
     }
 
@@ -278,6 +286,23 @@ impl Vm {
             };
             
             match frame {
+                Frame::Active(Active::Mark) => {
+                    self.proc_depth += 1;
+                    self.op_stack.push(frame)
+                },
+
+                _ if self.proc_depth > 0 => self.op_stack.push(frame),
+
+                Frame::Active(Active::List(list)) => {
+                    let len = list.len()?;
+                    if len != 0 {
+                        if len > 1 {
+                            self.exec_stack.push(Active::List(list.range(1, len-1)?).into())
+                        };
+                        self.exec_stack.push(list.get(0)?)
+                    }
+                },
+                
                 Frame::Active(Active::Name(name)) => {
                     let f = self.find(name)?;
                     self.exec_stack.push(f)
