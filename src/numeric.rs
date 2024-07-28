@@ -37,6 +37,26 @@ macro_rules! cast_from_float {
 
 cast_from_float!(i64, usize, i128);
 
+pub trait CastFrom128: NumericPrimitive {
+    fn cast(f: i128) -> Option<Self>;
+}
+
+macro_rules! cast_from_128 {
+    ($($prim:ident),+) => {
+        $(
+            impl CastFrom128 for $prim {
+                fn cast(i: i128) -> Option<Self> {
+                    if i > $prim::MAX as i128 ||
+                        i < $prim::MIN as i128
+                    {None} else {Some(i as $prim)}
+                }
+            }
+        )+
+    };
+}
+
+cast_from_128!(i64, usize);
+
 #[derive(Clone, Copy)]
 pub struct CasterBuilder<T: NumericPrimitive + CastFromFloat> {
     lhs: PhantomData<T>,
@@ -93,24 +113,59 @@ pub trait CasterTrait<T, U>: Copy+Clone where
     U: NumericPrimitive {
     type Mid: NumericPrimitive + CastFromFloat;
     fn cast(&self, lhs: T, rhs: U) -> (Self::Mid, Self::Mid);
-    fn back_cast(&self, mid: Self::Mid) -> T;
+    fn back_cast(&self, mid: Self::Mid) -> Option<T>;
 }
 
-macro_rules! caster {
-    ($(($lhs:ty, $rhs:ty) => $mid:ty),+) => {
+macro_rules! caster_base {
+    ($(($lhs:ty, $rhs:ty, $mid:ident, $cast:expr, $back_cast:expr)),+) => {
         $(
             impl CasterTrait<$lhs, $rhs> for Caster<$lhs, $rhs> {
                 type Mid = $mid;
-                fn cast(&self, lhs: $lhs, rhs: $rhs) -> (Self::Mid, Self::Mid) {(lhs as Self::Mid, rhs as Self::Mid)}
-                fn back_cast(&self, mid: Self::Mid) -> $lhs {mid as $lhs}
+                fn cast(&self, lhs: $lhs, rhs: $rhs) -> (Self::Mid, Self::Mid) {
+                    $cast(lhs, rhs)
+                }
+                fn back_cast(&self, mid: Self::Mid) -> Option<$lhs> {
+                    $back_cast(mid)
+                }
             }
         )+
     };
 }
 
-caster!((i64, i64) => i64, (i64, f64) => f64, (i64, usize) => i128,
-          (usize, i64) => i128, (usize, f64) => f64, (usize, usize) => usize,
-          (f64, i64) => f64, (f64, f64) => f64, (f64, usize) => f64);
+macro_rules! caster_simple {
+    ($(($lhs:ty, $rhs:ty) => $mid:ident),+) => {
+        caster_base!($((
+            $lhs, $rhs, $mid,
+            |lhs, rhs| {(lhs as Self::Mid, rhs as Self::Mid)},
+            |mid| {Some(mid as $lhs)}
+        )),+);
+    };
+}
+
+macro_rules! caster_back {
+    ($(($lhs:ty, $rhs:ty) => $mid:ident $back_cast:expr),+) => {
+        caster_base!($((
+            $lhs, $rhs, $mid,
+            |lhs, rhs| {(lhs as Self::Mid, rhs as Self::Mid)},
+            $back_cast
+        )),+);
+    };
+}
+
+caster_simple!(
+    (i64,   i64)   => i64,
+    (usize, usize) => usize,
+    (f64,   f64)   => f64,
+    (f64,   i64)   => f64,
+    (f64,   usize) => f64
+);
+
+caster_back!(
+    (i64,   f64)   => f64  CastFromFloat::cast,
+    (usize, f64)   => f64  CastFromFloat::cast,
+    (i64,   usize) => i128 CastFrom128::cast,
+    (usize, i64)   => i128 CastFrom128::cast
+);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum NumericValue<T: NumericPrimitive> {

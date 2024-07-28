@@ -71,8 +71,11 @@ pub trait DyadicOp {
         if let (Value(lhs), Value(rhs)) = (lhs, rhs) {
             let (lhs, rhs) = caster.cast(lhs, rhs);
             let mid = Self::func(lhs, rhs)?;
-            if let Value(mid) = mid {Ok(Value(caster.back_cast(mid)))}
-            else {Ok(NaN)}
+            if let Value(mid) = mid {
+                if let Some(mid) = caster.back_cast(mid) {
+                    Ok(Value(mid))
+                } else {Ok(NaN)}
+            } else {Ok(NaN)}
         } else {Ok(NaN)}
     }
 
