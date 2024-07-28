@@ -18,27 +18,24 @@ impl CastFromFloat for f64 {
     fn cast(f: f64) -> Option<Self> {Some(f)}
 }
 
-impl CastFromFloat for i64 {
-    fn cast(f: f64) -> Option<Self> {
-        if ! f.is_finite() ||
-            f > i64::MAX as f64 ||
-            f < i64::MIN as f64
-        {None} else {
-            Some(f.round() as i64)
-        }
-    }
+macro_rules! cast_from_float {
+    ($($prim:ident),+) => {
+        $(
+            impl CastFromFloat for $prim {
+                fn cast(f: f64) -> Option<Self> {
+                    if ! f.is_finite() ||
+                        f > $prim::MAX as f64 ||
+                        f < $prim::MIN as f64
+                    {None} else {
+                        Some(f.round() as $prim)
+                    }
+                }
+            }
+        )+
+    };
 }
 
-impl CastFromFloat for usize {
-    fn cast(f: f64) -> Option<Self> {
-        if ! f.is_finite() ||
-            f > usize::MAX as f64 ||
-            f < usize::MIN as f64
-        {None} else {
-            Some(f.round() as usize)
-        }
-    }
-}
+cast_from_float!(i64, usize, i128);
 
 #[derive(Clone, Copy)]
 pub struct CasterBuilder<T: NumericPrimitive + CastFromFloat> {
@@ -111,8 +108,8 @@ macro_rules! caster {
     };
 }
 
-caster!((i64, i64) => i64, (i64, f64) => f64, (i64, usize) => i64,
-          (usize, i64) => i64, (usize, f64) => f64, (usize, usize) => usize,
+caster!((i64, i64) => i64, (i64, f64) => f64, (i64, usize) => i128,
+          (usize, i64) => i128, (usize, f64) => f64, (usize, usize) => usize,
           (f64, i64) => f64, (f64, f64) => f64, (f64, usize) => f64);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
